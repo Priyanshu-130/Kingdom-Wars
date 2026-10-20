@@ -19,12 +19,13 @@ class GameController:
         self,
         repository: Optional[PuzzleRepository] = None,
         progress: Optional[ProgressManager] = None,
+        browser_mode: bool = False,
     ) -> None:
         self.checker = ConstraintChecker()
         self.levels = LevelManager()
         self.repository = repository or PuzzleRepository()
         self.progress = progress or ProgressManager()
-        self.round = RoundManager(self.checker)
+        self.round = RoundManager(self.checker, threaded=not browser_mode)
         self.config = SolverConfig()
         self.last_result: Optional[RoundResult] = None
         self.current_level = 1

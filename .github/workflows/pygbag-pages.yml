@@ -1,0 +1,44 @@
+name: Pygbag GitHub Pages
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pygbag-pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Build browser game
+        run: python -m pygbag --build main.py
+
+      - name: Use the maintained BrowserFS CDN asset
+        run: python scripts/prepare_web_build.py
+
+      - name: Publish build to gh-pages
+        uses: JamesIves/github-pages-deploy-action@v4.6.9
+        with:
+          branch: gh-pages
+          folder: build/web

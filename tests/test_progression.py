@@ -1,4 +1,6 @@
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 
 from src.core.level_manager import LevelManager
 from src.core.progress_manager import ProgressManager
@@ -51,3 +53,22 @@ def test_finalize_records_once(tmp_path: Path):
     controller._record_completion(fake)
     controller._record_completion(fake)
     assert progress.completed_count(1) == 1
+
+
+def test_browser_progress_uses_local_storage(monkeypatch, tmp_path: Path):
+    class LocalStorage:
+        def __init__(self):
+            self.values = {}
+
+        def getItem(self, key):
+            return self.values.get(key)
+
+        def setItem(self, key, value):
+            self.values[key] = value
+
+    storage = LocalStorage()
+    monkeypatch.setitem(sys.modules, "js", SimpleNamespace(localStorage=storage))
+    first = ProgressManager(tmp_path / "unused.json")
+    first.mark_completed(1, 1)
+    reloaded = ProgressManager(tmp_path / "unused.json")
+    assert reloaded.is_completed(1, 1)

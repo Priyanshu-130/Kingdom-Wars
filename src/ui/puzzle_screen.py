@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 import pygame
@@ -25,11 +26,14 @@ from .widgets import (
 
 class PuzzleScreen:
     name = "puzzle"
+    DOUBLE_CLICK_SECONDS = 0.3
 
     def __init__(self, app) -> None:
         self.app = app
         self.grid: Optional[GridLayout] = None
         self.hover: Optional[tuple[int, int]] = None
+        self._pending_x_cell: Optional[tuple[int, int]] = None
+        self._pending_x_since = 0.0
         self.submit_btn = Button("Submit Solution", self._submit, accent=True)
         self.restart_btn = Button("Restart", self._restart)
         self.menu_btn = Button("Return to Menu", self._leave)
@@ -57,6 +61,26 @@ class PuzzleScreen:
         self.grid = layout_grid(puzzle.n, area)
 
     def handle(self, event: pygame.event.Event) -> None:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
+            cell = self.grid.cell_at(event.pos) if self.grid is not None else None
+            if event.button == 1 and cell is not None:
+                now = time.perf_counter()
+                if (
+                    self._pending_x_cell == cell
+                    and now - self._pending_x_since <= self.DOUBLE_CLICK_SECONDS
+                ):
+                    self._pending_x_cell = None
+                    self.app.controller.round.toggle_human(*cell)
+                else:
+                    self._flush_pending_x()
+                    self._pending_x_cell = cell
+                    self._pending_x_since = now
+                return
+            self._flush_pending_x()
+            if event.button == 3 and cell is not None:
+                self.app.controller.round.toggle_x_mark(*cell)
+                return
+
         self.submit_btn.handle(event)
         self.restart_btn.handle(event)
         self.menu_btn.handle(event)
@@ -64,15 +88,19 @@ class PuzzleScreen:
             return
         if event.type == pygame.MOUSEMOTION:
             self.hover = self.grid.cell_at(event.pos)
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
-            cell = self.grid.cell_at(event.pos)
-            if cell:
-                if event.button == 1:
-                    self.app.controller.round.toggle_human(*cell)
-                else:
-                    self.app.controller.round.toggle_x_mark(*cell)
+
+    def _flush_pending_x(self) -> None:
+        if self._pending_x_cell is None:
+            return
+        self.app.controller.round.toggle_x_mark(*self._pending_x_cell)
+        self._pending_x_cell = None
 
     def update(self, dt: float) -> None:
+        if (
+            self._pending_x_cell is not None
+            and time.perf_counter() - self._pending_x_since >= self.DOUBLE_CLICK_SECONDS
+        ):
+            self._flush_pending_x()
         result = self.app.controller.tick()
         if result and result.finalized:
             self.app.show_results(result)
@@ -131,10 +159,13 @@ class PuzzleScreen:
             status = "Your solution is locked. Waiting for the round clock."
         st = self.app.font_button.render(status, True, OK)
         surface.blit(st, (side.x + 24, side.y + 152))
-        note = self.app.font_small.render("AI progress is hidden until results.", True, MUTED)
-        surface.blit(note, (side.x + 24, side.y + 190))
+        y = side.y + 190
+        for line in wrap_text("AI progress is hidden until results.", self.app.font_small, side.width - 48):
+            img = self.app.font_small.render(line, True, MUTED)
+            surface.blit(img, (side.x + 24, y))
+            y += 24
 
-        y = side.y + 230
+        y += 8
         fb_title = self.app.font_button.render("Your feedback", True, TEXT)
         surface.blit(fb_title, (side.x + 24, y))
         y += 40
@@ -149,11 +180,15 @@ class PuzzleScreen:
         )
         surface.blit(counts, (side.x + 24, y))
         help_lines = [
-            "Left-click to place/remove a queen.",
-            "Right-click to toggle an X mark.",
-            "Submit only when every constraint holds.",
+            line
+            for text in (
+                "Single-click to mark X; double-click a queen.",
+                "Right-click also toggles an X mark.",
+                "Submit only when every constraint holds.",
+            )
+            for line in wrap_text(text, self.app.font_small, side.width - 48)
         ]
-        y = side.bottom - 126
+        y = side.bottom - len(help_lines) * 24 - 24
         for line in help_lines:
             img = self.app.font_small.render(line, True, MUTED)
             surface.blit(img, (side.x + 24, y))

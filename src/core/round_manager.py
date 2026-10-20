@@ -23,10 +23,14 @@ class RoundManager:
         self,
         checker: Optional[ConstraintChecker] = None,
         executor: Optional[ThreadPoolExecutor] = None,
+        threaded: bool = True,
     ) -> None:
         self.checker = checker or ConstraintChecker()
-        self._executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="kw-ai")
-        self._owns_executor = executor is None
+        self._threaded = threaded
+        self._executor = executor or (
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="kw-ai") if threaded else None
+        )
+        self._owns_executor = executor is None and self._executor is not None
         self.phase = RoundPhase.READY
         self.puzzle: Optional[Puzzle] = None
         self.config = SolverConfig()
@@ -54,7 +58,7 @@ class RoundManager:
 
     def shutdown(self) -> None:
         self.cancel_event.set()
-        if self._owns_executor:
+        if self._owns_executor and self._executor is not None:
             self._executor.shutdown(wait=False, cancel_futures=True)
 
     def start_round(
@@ -102,6 +106,12 @@ class RoundManager:
             near_simultaneous_tolerance=self.tolerance,
             round_time_limit_seconds=self.time_limit,
         )
+        if not self._threaded:
+            self._future = None
+            result = self._run_ai(puzzle, solver, solver_config, self.cancel_event)
+            self._apply_ai_result(result, time.perf_counter())
+            return
+        assert self._executor is not None
         self._future = self._executor.submit(self._run_ai, puzzle, solver, solver_config, self.cancel_event)
 
     def _run_ai(

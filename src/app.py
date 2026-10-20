@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 
@@ -17,9 +18,15 @@ from .ui.widgets import NAVY
 
 
 class KingdomWarsApp:
-    def __init__(self, controller: GameController | None = None, size: tuple[int, int] = (1280, 720)) -> None:
+    def __init__(
+        self,
+        controller: GameController | None = None,
+        size: tuple[int, int] = (1280, 720),
+        browser_mode: bool = False,
+    ) -> None:
         self.controller = controller or GameController()
         self.size = size
+        self.browser_mode = browser_mode
         self.running = False
         self.screen_surface = None
         self.clock = None
@@ -33,7 +40,8 @@ class KingdomWarsApp:
     def _init_display(self) -> None:
         pygame.init()
         pygame.display.set_caption("Kingdom Wars: The AI Queen Race")
-        self.screen_surface = pygame.display.set_mode(self.size, pygame.RESIZABLE)
+        flags = pygame.RESIZABLE | (pygame.SCALED if self.browser_mode else 0)
+        self.screen_surface = pygame.display.set_mode(self.size, flags)
         self.clock = pygame.time.Clock()
         self.font_hero = pygame.font.SysFont("georgia", 54, bold=True)
         self.font_title = pygame.font.SysFont("segoeui", 32, bold=True)
@@ -66,16 +74,21 @@ class KingdomWarsApp:
         self.running = False
 
     def run(self) -> None:
+        asyncio.run(self.run_async())
+
+    async def run_async(self) -> None:
         self._init_display()
         try:
             while self.running:
                 dt = self.clock.tick(60) / 1000.0
+                await asyncio.sleep(0)
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
                     elif event.type == pygame.VIDEORESIZE:
-                        self.size = (max(1024, event.w), max(640, event.h))
-                        self.screen_surface = pygame.display.set_mode(self.size, pygame.RESIZABLE)
+                        if not self.browser_mode:
+                            self.size = (max(800, event.w), max(600, event.h))
+                            self.screen_surface = pygame.display.set_mode(self.size, pygame.RESIZABLE)
                     else:
                         self.screens[self.current].handle(event)
                 self.screens[self.current].update(dt)
@@ -91,6 +104,15 @@ class KingdomWarsApp:
 def run() -> None:
     app = KingdomWarsApp()
     app.run()
+
+
+async def run_browser() -> None:
+    app = KingdomWarsApp(
+        controller=GameController(browser_mode=True),
+        size=(1100, 700),
+        browser_mode=True,
+    )
+    await app.run_async()
 
 
 def main() -> None:

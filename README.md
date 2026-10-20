@@ -21,7 +21,7 @@ A valid solution on an N×N board must satisfy **all** of the following:
 5. Exactly N queens.
 6. All of the above at the same time.
 
-Kingdoms are N connected 4-directional regions. Left-click a cell to place or remove a queen; right-click to toggle an independent X mark. X marks do not affect queen validation or mistakes. The visible mistake counter increases once for each distinct cell where an invalid queen placement is attempted. Invalid cells are highlighted red. At three mistakes the round ends in failure, and that game is not marked complete. Restarting resets the counter; leaving or restarting a round does not count as completing that game.
+Kingdoms are N connected 4-directional regions. Single-click a cell to toggle an independent X mark; double-click to place or remove a queen. Right-click also toggles an X mark. X marks do not affect queen validation or mistakes. The visible mistake counter increases once for each distinct cell where an invalid queen placement is attempted. Invalid cells are highlighted red. At three mistakes the round ends in failure, and that game is not marked complete. Restarting resets the counter; leaving or restarting a round does not count as completing that game.
 
 Race rules:
 
@@ -45,11 +45,12 @@ Race rules:
 ## Technology stack
 
 - CPython 3.13 (64-bit on Windows)
-- Pygame 2.6.1
+- pygame-ce 2.5.8
+- Pygbag 0.9.3 (browser build)
 - pytest
 - Standard library: `heapq`, `concurrent.futures`, `threading`, `json`, `dataclasses`
 
-No web server, database, authentication, or cloud API.
+The desktop game uses a background worker for AI search. The browser build uses the same solver and runs it synchronously because browser Python does not provide the desktop thread pool; browser progress is stored in local storage. No application server, database, authentication, or cloud API is required.
 
 ## Prerequisites
 
@@ -67,7 +68,7 @@ py -3.13 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-Pygame 2.6.1 has a prebuilt Windows wheel for CPython 3.13, so this setup does not need to compile Pygame with Visual C++. Python 3.14 is not the supported environment for this project.
+pygame-ce provides a prebuilt Windows wheel for CPython 3.13, so setup does not need to compile SDL with Visual C++. Python 3.14 is not the supported environment for this project.
 
 ## How to run
 
@@ -86,6 +87,46 @@ Alternative:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+## Browser build (Pygbag)
+
+The root `main.py` remains the game entry point for both the desktop launcher and Pygbag. The browser entry uses an asynchronous Pygame loop that yields to the browser event loop each frame and scales the existing 1100×700 layout to the browser canvas. It keeps all four solvers, the colored-kingdom puzzles, the 12-game progression, the hidden AI race, the mistake limit, and the comparison screen.
+
+From the project root, install the requirements and build/serve the web version:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pygbag main.py
+```
+
+Open `http://localhost:8000` in a browser. For a build without starting the local server:
+
+```powershell
+.\.venv\Scripts\python.exe -m pygbag --build main.py
+.\.venv\Scripts\python.exe scripts\prepare_web_build.py
+```
+
+The generated site is in `build/web/`. To serve it locally after building:
+
+```powershell
+Push-Location build\web
+..\..\.venv\Scripts\python.exe -m http.server 9000
+Pop-Location
+```
+
+Open `http://localhost:9000`. Use port 9000 for a plain static server: Pygbag rewrites package CDN requests to `/cdn/` on localhost ports beginning with 8, which requires Pygbag's own development server. In browser games, click once to mark X and double-click to place/remove a queen; right-click remains an X-mark shortcut. Browser progression persists in local storage. AI solving and the algorithm-comparison screen run synchronously in the browser, so a search can briefly pause rendering; the desktop version retains its background AI worker. Pygbag 0.9.3's default template points to a missing BrowserFS asset, so the build preparation script switches that one reference to the version-pinned BrowserFS CDN; the script fails if Pygbag's generated template no longer matches the expected reference.
+
+### GitHub Pages
+
+The `Pygbag GitHub Pages` workflow builds and tests on pushes to `master` and can also be started manually from the repository's **Actions** tab. It publishes the generated `build/web/` files to the `gh-pages` branch. To enable the published site:
+
+1. Open [Settings → Pages](https://github.com/Priyanshu-130/Kingdom-Wars/settings/pages).
+2. Under **Build and deployment**, choose **Deploy from a branch**.
+3. Select branch `gh-pages` and folder `/(root)`, then save.
+4. Wait for the Pages deployment workflow to complete. The project site URL is `https://priyanshu-130.github.io/Kingdom-Wars/`.
+
+The Actions workflow is granted only `contents: write`, required to update `gh-pages`. Until the workflow succeeds and Pages is enabled, the game is not deployed.
 
 ## Project structure
 
