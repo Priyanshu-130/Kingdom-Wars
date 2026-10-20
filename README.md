@@ -90,7 +90,7 @@ Alternative:
 
 ## Browser build (Pygbag)
 
-The root `main.py` remains the game entry point for both the desktop launcher and Pygbag. The browser entry uses an asynchronous Pygame loop that yields to the browser event loop each frame and scales the existing 1100×700 layout to the browser canvas. It keeps all four solvers, the colored-kingdom puzzles, the 12-game progression, the hidden AI race, the mistake limit, and the comparison screen.
+The root `main.py` remains the game entry point for both the desktop launcher and Pygbag. The browser entry uses an asynchronous Pygame loop that yields to the browser event loop each frame and renders the existing 1100×700 layout to the browser canvas. In browser mode, mouse positions are normalized against the canvas's current CSS size because Pygbag's SDL `SCALED` display otherwise scales pointer coordinates a second time, breaking button and board hit-testing. It keeps all four solvers, the colored-kingdom puzzles, the 12-game progression, the hidden AI race, the mistake limit, and the comparison screen.
 
 From the project root, install the requirements and build/serve the web version:
 

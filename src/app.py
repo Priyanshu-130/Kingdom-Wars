@@ -73,6 +73,38 @@ class KingdomWarsApp:
     def quit(self) -> None:
         self.running = False
 
+    def _normalize_browser_mouse_event(self, event: pygame.event.Event) -> pygame.event.Event:
+        if not self.browser_mode or event.type not in (
+            pygame.MOUSEMOTION,
+            pygame.MOUSEBUTTONDOWN,
+            pygame.MOUSEBUTTONUP,
+        ):
+            return event
+
+        from js import document
+
+        canvas = document.getElementById("canvas")
+        if canvas is None:
+            raise RuntimeError("Pygbag canvas element was not found.")
+        if self.screen_surface is None:
+            raise RuntimeError("Pygame display has not been initialized.")
+        rect = canvas.getBoundingClientRect()
+        width, height = self.screen_surface.get_size()
+        if rect.width <= 0 or rect.height <= 0:
+            raise RuntimeError("Pygbag canvas has no drawable area.")
+
+        attributes = event.dict.copy()
+        attributes["pos"] = (
+            int(event.pos[0] / (width / rect.width)),
+            int(event.pos[1] / (height / rect.height)),
+        )
+        if event.type == pygame.MOUSEMOTION:
+            attributes["rel"] = (
+                int(event.rel[0] / (width / rect.width)),
+                int(event.rel[1] / (height / rect.height)),
+            )
+        return pygame.event.Event(event.type, attributes)
+
     def run(self) -> None:
         asyncio.run(self.run_async())
 
@@ -83,6 +115,7 @@ class KingdomWarsApp:
                 dt = self.clock.tick(60) / 1000.0
                 await asyncio.sleep(0)
                 for event in pygame.event.get():
+                    event = self._normalize_browser_mouse_event(event)
                     if event.type == pygame.QUIT:
                         self.running = False
                     elif event.type == pygame.VIDEORESIZE:
