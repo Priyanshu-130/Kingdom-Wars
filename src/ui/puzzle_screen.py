@@ -64,10 +64,13 @@ class PuzzleScreen:
             return
         if event.type == pygame.MOUSEMOTION:
             self.hover = self.grid.cell_at(event.pos)
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
             cell = self.grid.cell_at(event.pos)
             if cell:
-                self.app.controller.round.toggle_human(*cell)
+                if event.button == 1:
+                    self.app.controller.round.toggle_human(*cell)
+                else:
+                    self.app.controller.round.toggle_x_mark(*cell)
 
     def update(self, dt: float) -> None:
         result = self.app.controller.tick()
@@ -95,7 +98,16 @@ class PuzzleScreen:
         sub = self.app.font_small.render(f"AI algorithm (hidden during the race): {meta['algorithm']}", True, MUTED)
         surface.blit(sub, (250, 68))
 
-        draw_board(surface, puzzle, rnd.human_board, self.grid, True, self.hover)
+        draw_board(
+            surface,
+            puzzle,
+            rnd.human_board,
+            self.grid,
+            True,
+            self.hover,
+            rnd.invalid_cells,
+            rnd.x_marks,
+        )
 
         side = pygame.Rect(w - 360, 110, 328, h - 150)
         draw_round_rect(surface, side, PANEL, 18)
@@ -106,14 +118,21 @@ class PuzzleScreen:
         surface.blit(timer, (side.x + 24, side.y + 24))
         tlabel = self.app.font_small.render("Time remaining", True, MUTED)
         surface.blit(tlabel, (side.x + 24, side.y + 96))
+        mistake_color = DANGER if rnd.mistakes else TEXT
+        mistake_counter = self.app.font_button.render(
+            f"Mistakes: {rnd.mistakes}/{rnd.MAX_MISTAKES}",
+            True,
+            mistake_color,
+        )
+        surface.blit(mistake_counter, (side.x + 24, side.y + 116))
 
         status = "AI is competing"
         if rnd.phase == RoundPhase.COMPETITOR_FINISHED and rnd.human_valid:
             status = "Your solution is locked. Waiting for the round clock."
         st = self.app.font_button.render(status, True, OK)
-        surface.blit(st, (side.x + 24, side.y + 140))
+        surface.blit(st, (side.x + 24, side.y + 152))
         note = self.app.font_small.render("AI progress is hidden until results.", True, MUTED)
-        surface.blit(note, (side.x + 24, side.y + 178))
+        surface.blit(note, (side.x + 24, side.y + 190))
 
         y = side.y + 230
         fb_title = self.app.font_button.render("Your feedback", True, TEXT)
@@ -130,11 +149,11 @@ class PuzzleScreen:
         )
         surface.blit(counts, (side.x + 24, y))
         help_lines = [
-            "Click a cell to place or remove a queen.",
+            "Left-click to place/remove a queen.",
+            "Right-click to toggle an X mark.",
             "Submit only when every constraint holds.",
-            "Restarting does not count as a completed game.",
         ]
-        y = side.bottom - 110
+        y = side.bottom - 126
         for line in help_lines:
             img = self.app.font_small.render(line, True, MUTED)
             surface.blit(img, (side.x + 24, y))

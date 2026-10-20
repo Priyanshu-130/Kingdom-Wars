@@ -4,7 +4,7 @@ from typing import Optional
 
 from ..algorithms.base_solver import BaseSolver
 from ..models.puzzle import Puzzle
-from ..models.round_result import RoundResult
+from ..models.round_result import RaceOutcome, RoundResult
 from ..models.solver_config import SolverConfig
 from ..models.solver_result import SolverResult
 from .constraint_checker import ConstraintChecker
@@ -66,7 +66,7 @@ class GameController:
 
     def _record_completion(self, result: RoundResult) -> None:
         self.last_result = result
-        if result.outcome.value == "abandoned":
+        if result.outcome in (RaceOutcome.ABANDONED, RaceOutcome.HUMAN_FAILED):
             return
         self.progress.mark_completed(result.puzzle.level, result.puzzle.game)
 

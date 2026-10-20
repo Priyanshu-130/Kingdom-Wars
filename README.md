@@ -21,7 +21,7 @@ A valid solution on an N×N board must satisfy **all** of the following:
 5. Exactly N queens.
 6. All of the above at the same time.
 
-Kingdoms are N connected 4-directional regions. Click a cell to place or remove a queen. Submit only complete valid boards. Restarting or leaving a round does not count as completing that game.
+Kingdoms are N connected 4-directional regions. Left-click a cell to place or remove a queen; right-click to toggle an independent X mark. X marks do not affect queen validation or mistakes. The visible mistake counter increases once for each distinct cell where an invalid queen placement is attempted. Invalid cells are highlighted red. At three mistakes the round ends in failure, and that game is not marked complete. Restarting resets the counter; leaving or restarting a round does not count as completing that game.
 
 Race rules:
 
@@ -44,8 +44,8 @@ Race rules:
 
 ## Technology stack
 
-- Python 3.11+ (3.10 is likely fine)
-- Pygame
+- CPython 3.13 (64-bit on Windows)
+- Pygame 2.6.1
 - pytest
 - Standard library: `heapq`, `concurrent.futures`, `threading`, `json`, `dataclasses`
 
@@ -54,7 +54,7 @@ No web server, database, authentication, or cloud API.
 ## Prerequisites
 
 - Windows 10/11
-- Python 3.11 or newer on PATH
+- Python 3.13 (64-bit) available as `py -3.13`
 - Ability to create a virtual environment and install packages
 
 ## Installation (Windows PowerShell)
@@ -62,29 +62,29 @@ No web server, database, authentication, or cloud API.
 From the project folder:
 
 ```powershell
-python -m venv .venv
+py -3.13 -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-If `python` is not found, try `py -3` in place of `python`.
+Pygame 2.6.1 has a prebuilt Windows wheel for CPython 3.13, so this setup does not need to compile Pygame with Visual C++. Python 3.14 is not the supported environment for this project.
 
 ## How to run
 
 ```powershell
-python main.py
+.\.venv\Scripts\python.exe main.py
 ```
 
 Alternative:
 
 ```powershell
-python -m src.app
+.\.venv\Scripts\python.exe -m src.app
 ```
 
 ## How to test
 
 ```powershell
-python -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 ## Project structure

@@ -21,6 +21,7 @@ class RaceOutcome(str, Enum):
     AI_WIN = "ai_win"
     DRAW = "draw"
     ABANDONED = "abandoned"
+    HUMAN_FAILED = "human_failed"
 
 
 @dataclass
@@ -37,3 +38,6 @@ class RoundResult:
     human_feedback: str = ""
     finalized: bool = True
     notes: list[str] = field(default_factory=list)
+    mistakes: int = 0
+    invalid_cells: frozenset[tuple[int, int]] = field(default_factory=frozenset)
+    x_marks: frozenset[tuple[int, int]] = field(default_factory=frozenset)

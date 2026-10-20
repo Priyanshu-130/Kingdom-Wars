@@ -50,6 +50,11 @@ def test_mouse_place_submit_restart_and_ai_thread(tmp_path):
     assert controller.round.human_board.has_queen(r, c)
     screen.handle(down)
     assert not controller.round.human_board.has_queen(r, c)
+    x_mark = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=3, pos=pos)
+    screen.handle(x_mark)
+    assert (r, c) in controller.round.x_marks
+    assert controller.round.mistakes == 0
+    assert not controller.round.human_board.has_queen(r, c)
     for row, col in enumerate(puzzle.verified_solution):
         if not controller.round.human_board.has_queen(row, col):
             controller.round.toggle_human(row, col)
@@ -60,5 +65,46 @@ def test_mouse_place_submit_restart_and_ai_thread(tmp_path):
     controller.tick()
     app.screens["puzzle"].update(0.016)
     controller.abandon()
+    app.quit()
+    pygame.quit()
+
+
+def test_invalid_queen_is_highlighted_and_x_mark_does_not_count(tmp_path):
+    pygame.init()
+    controller = GameController(PuzzleRepository(), ProgressManager(tmp_path / "p.json"))
+    app = KingdomWarsApp(controller=controller, size=(1100, 700))
+    app._init_display()
+    app.start_race(1, 1)
+    puzzle = controller.round.puzzle
+    screen = app.screens["puzzle"]
+    screen.layout((1100, 700))
+    assert screen.grid is not None
+
+    valid_cell = (0, puzzle.verified_solution[0])
+    valid_pos = screen.grid.rect_for(*valid_cell).center
+    screen.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=valid_pos))
+
+    invalid_cell = (0, (puzzle.verified_solution[0] + 1) % puzzle.n)
+    invalid_pos = screen.grid.rect_for(*invalid_cell).center
+    invalid_click = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=invalid_pos)
+    screen.handle(invalid_click)
+    screen.handle(invalid_click)
+    assert controller.round.mistakes == 1
+    assert invalid_cell in controller.round.invalid_cells
+    assert not controller.round.human_board.has_queen(*invalid_cell)
+    assert "Invalid queen placement" in controller.round.human_feedback
+
+    surface = app.screen_surface
+    screen.draw(surface)
+    assert surface.get_at(invalid_pos)[:3] == (190, 38, 52)
+
+    x_cell = (1, 0)
+    x_pos = screen.grid.rect_for(*x_cell).center
+    screen.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=3, pos=x_pos))
+    assert x_cell in controller.round.x_marks
+    assert controller.round.mistakes == 1
+    assert not controller.round.human_board.has_queen(*x_cell)
+
+    app.controller.round.shutdown()
     app.quit()
     pygame.quit()

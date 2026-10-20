@@ -17,6 +17,8 @@ from .constraint_checker import ConstraintChecker
 class RoundManager:
     """Independent human/AI boards, monotonic timing, one-shot finalization."""
 
+    MAX_MISTAKES = 3
+
     def __init__(
         self,
         checker: Optional[ConstraintChecker] = None,
@@ -31,6 +33,10 @@ class RoundManager:
         self.human_board = BoardState(4)
         self.ai_board = BoardState(4)
         self.human_feedback = ""
+        self.mistakes = 0
+        self.invalid_cells: set[tuple[int, int]] = set()
+        self._counted_mistake_cells: set[tuple[int, int]] = set()
+        self.x_marks: set[tuple[int, int]] = set()
         self.human_time: Optional[float] = None
         self.ai_time: Optional[float] = None
         self.human_valid = False
@@ -68,6 +74,10 @@ class RoundManager:
         self.human_board = BoardState(puzzle.n)
         self.ai_board = BoardState(puzzle.n)
         self.human_feedback = self.checker.human_feedback(puzzle, [])
+        self.mistakes = 0
+        self.invalid_cells.clear()
+        self._counted_mistake_cells.clear()
+        self.x_marks.clear()
         self.human_time = None
         self.ai_time = None
         self.human_valid = False
@@ -120,9 +130,78 @@ class RoundManager:
             return
         if self.human_valid or self.human_board.locked:
             return
-        self.human_board.toggle(row, col)
+        if not (0 <= row < self.human_board.n and 0 <= col < self.human_board.n):
+            return
+        cell = (row, col)
+        if self.human_board.has_queen(row, col):
+            self.human_board.remove(row, col)
+            assert self.puzzle is not None
+            self.human_feedback = self.checker.human_feedback(self.puzzle, self.human_board.queens)
+            return
+
         assert self.puzzle is not None
+        errors = self.checker.placement_conflicts(
+            self.puzzle,
+            self.human_board.queens,
+            candidate=cell,
+        )
+        if errors:
+            self.invalid_cells.add(cell)
+            if cell not in self._counted_mistake_cells:
+                self._counted_mistake_cells.add(cell)
+                self.mistakes += 1
+            self.human_feedback = (
+                f"Invalid queen placement: {' '.join(errors[:3])} "
+                f"Mistakes: {self.mistakes}/{self.MAX_MISTAKES}."
+            )
+            if self.mistakes >= self.MAX_MISTAKES:
+                self._finalize_failure()
+            return
+
+        self.invalid_cells.discard(cell)
+        self.human_board.place(row, col)
         self.human_feedback = self.checker.human_feedback(self.puzzle, self.human_board.queens)
+
+    def toggle_x_mark(self, row: int, col: int) -> None:
+        if self.phase not in (RoundPhase.RUNNING, RoundPhase.COMPETITOR_FINISHED):
+            return
+        if self.human_valid or self.human_board.locked:
+            return
+        if not (0 <= row < self.human_board.n and 0 <= col < self.human_board.n):
+            return
+        cell = (row, col)
+        if cell in self.x_marks:
+            self.x_marks.remove(cell)
+        else:
+            self.x_marks.add(cell)
+
+    def _finalize_failure(self) -> None:
+        if self._finalized or self.puzzle is None:
+            return
+        self.human_feedback = (
+            f"Game over: {self.MAX_MISTAKES} invalid queen placements. "
+            "Restart to try this game again."
+        )
+        self.cancel_event.set()
+        self.phase = RoundPhase.ROUND_FINALIZED
+        self._finalized = True
+        self._result = RoundResult(
+            puzzle=self.puzzle,
+            outcome=RaceOutcome.HUMAN_FAILED,
+            human_board=self.human_board.copy(),
+            ai_board=self.ai_board.copy() if self.ai_valid else None,
+            human_valid=False,
+            ai_valid=self.ai_valid,
+            human_time=None,
+            ai_time=self.ai_time,
+            solver_result=self.solver_result,
+            human_feedback=self.human_feedback,
+            finalized=True,
+            notes=[self.human_feedback],
+            mistakes=self.mistakes,
+            invalid_cells=frozenset(self.invalid_cells),
+            x_marks=frozenset(self.x_marks),
+        )
 
     def submit_human(self, now: Optional[float] = None) -> bool:
         if self._finalized or self.puzzle is None:
@@ -169,6 +248,9 @@ class RoundManager:
             human_feedback=self.human_feedback,
             finalized=True,
             notes=["Round abandoned; progression is not awarded."],
+            mistakes=self.mistakes,
+            invalid_cells=frozenset(self.invalid_cells),
+            x_marks=frozenset(self.x_marks),
         )
         return self._result
 
@@ -261,6 +343,9 @@ class RoundManager:
             human_feedback=self.human_feedback,
             finalized=True,
             notes=notes,
+            mistakes=self.mistakes,
+            invalid_cells=frozenset(self.invalid_cells),
+            x_marks=frozenset(self.x_marks),
         )
 
     @staticmethod

@@ -79,9 +79,10 @@ class ResultScreen:
             RaceOutcome.AI_WIN: "The AI won the race",
             RaceOutcome.DRAW: "Draw",
             RaceOutcome.ABANDONED: "Round abandoned",
+            RaceOutcome.HUMAN_FAILED: "Game over: 3 mistakes",
         }[result.outcome]
         color = OK if result.outcome == RaceOutcome.HUMAN_WIN else GOLD
-        if result.outcome == RaceOutcome.AI_WIN:
+        if result.outcome in (RaceOutcome.AI_WIN, RaceOutcome.HUMAN_FAILED):
             color = DANGER
         title = self.app.font_title.render(headline, True, color)
         surface.blit(title, (230, 28))
@@ -89,7 +90,15 @@ class ResultScreen:
         human_area = pygame.Rect(40, 100, (w // 2) - 60, h // 2)
         ai_area = pygame.Rect(w // 2 + 10, 100, (w // 2) - 50, h // 2)
         h_layout = layout_grid(result.puzzle.n, human_area, max_cell=64)
-        draw_board(surface, result.puzzle, result.human_board, h_layout, True)
+        draw_board(
+            surface,
+            result.puzzle,
+            result.human_board,
+            h_layout,
+            True,
+            invalid_cells=result.invalid_cells,
+            x_marks=result.x_marks,
+        )
         hl = self.app.font_button.render("Human board", True, TEXT)
         surface.blit(hl, (human_area.x, human_area.y - 8 + human_area.height + 8) if False else (human_area.x, 96))
         if result.ai_valid and result.ai_board is not None:
@@ -112,6 +121,7 @@ class ResultScreen:
         lines = [
             f"Human valid: {result.human_valid}    time: {ht}",
             f"AI valid: {result.ai_valid}    time: {at}",
+            f"Mistakes: {result.mistakes}/{self.app.controller.round.MAX_MISTAKES}",
         ]
         sr = result.solver_result
         if sr:

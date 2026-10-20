@@ -141,6 +141,8 @@ def draw_board(
     layout: GridLayout,
     show_queens: bool = True,
     highlight: Optional[tuple[int, int]] = None,
+    invalid_cells: Optional[set[tuple[int, int]] | frozenset[tuple[int, int]]] = None,
+    x_marks: Optional[set[tuple[int, int]] | frozenset[tuple[int, int]]] = None,
 ) -> None:
     outer = pygame.Rect(layout.origin[0] - 8, layout.origin[1] - 8, layout.size() + 16, layout.size() + 16)
     draw_round_rect(surface, outer, PANEL, 18)
@@ -150,10 +152,25 @@ def draw_board(
             rect = layout.rect_for(r, c)
             base = puzzle.color_for_kingdom(puzzle.kingdom_at(r, c))
             fill = shade(base, -18 if (r + c) % 2 else 8)
-            if highlight == (r, c):
+            if invalid_cells and (r, c) in invalid_cells:
+                fill = (190, 38, 52)
+            elif highlight == (r, c):
                 fill = shade(base, 40)
             pygame.draw.rect(surface, fill, rect)
-            pygame.draw.rect(surface, shade(base, -50), rect, 1)
+            border = DANGER if invalid_cells and (r, c) in invalid_cells else shade(base, -50)
+            pygame.draw.rect(surface, border, rect, 2 if invalid_cells and (r, c) in invalid_cells else 1)
+            if x_marks and (r, c) in x_marks:
+                inset = max(8, rect.width // 3)
+                start = (rect.left + inset, rect.top + inset)
+                end = (rect.right - inset, rect.bottom - inset)
+                pygame.draw.line(surface, DANGER, start, end, max(2, rect.width // 18))
+                pygame.draw.line(
+                    surface,
+                    DANGER,
+                    (end[0], start[1]),
+                    (start[0], end[1]),
+                    max(2, rect.width // 18),
+                )
             if show_queens and board.has_queen(r, c):
                 draw_queen(surface, rect)
 
