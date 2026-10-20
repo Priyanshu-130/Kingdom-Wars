@@ -3,12 +3,39 @@ import { DEFAULT_CONFIG, SOLVERS, solveByKey } from "./solvers.js?three-solvers-
 import { validateRowColumns } from "./rules.js?three-solvers-v2";
 
 const MAX_LAB_TRACE_EVENTS = 6_000;
+const GAME_TRACE_BATCH_SIZE = 32;
+const MAX_GAME_TRACE_EVENTS = 6_000;
 
 function solveOne(message) {
-  const { puzzle, solverKey, config, startedAtEpoch, fixedQueens = [] } = message;
-  const solved = solveByKey(solverKey, puzzle, config, fixedQueens);
+  const { puzzle, solverKey, config, startedAtEpoch, fixedQueens = [], traceSearch = false } = message;
+  let traceTruncated = false;
+  let recordedEvents = 0;
+  const trace = traceSearch
+    ? {
+      enabled: true,
+      events: [],
+      record(event) {
+        if (recordedEvents >= MAX_GAME_TRACE_EVENTS) {
+          this.enabled = false;
+          traceTruncated = true;
+          return;
+        }
+        recordedEvents += 1;
+        this.events.push(event);
+        if (this.events.length >= GAME_TRACE_BATCH_SIZE) {
+          self.postMessage({ type: "trace", events: this.events });
+          this.events = [];
+        }
+      },
+    }
+    : null;
+  const solved = solveByKey(solverKey, puzzle, config, fixedQueens, trace);
+  if (trace?.events.length) {
+    self.postMessage({ type: "trace", events: trace.events });
+  }
   return {
     ...solved,
+    traceTruncated,
     raceElapsedSeconds: solved.success && solved.foundAtMonotonic !== null
       ? Math.max(
         0,

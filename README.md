@@ -30,6 +30,7 @@ Turn-based race rules:
 - Human and AI have independent boards. The human acts first; only the active player can place Queens or X marks.
 - The first player to complete a valid board wins. An invalid human Queen attempt counts as a mistake and does not pass the turn.
 - Every AI action at all three levels has the same **700 ms** reveal delay. The delay begins when the AI turn starts. If search is still running after that delay, the move waits for the worker result.
+- The live match replays the selected solver's actual placements, conflicts, rejections, backtracks, and search-tree events at a configurable 300, 400, or 500 ms per event. Playback time is reported separately from measured solver execution and never changes the 700 ms AI reveal delay.
 - Default round limit: **120 seconds**. If neither side solves before timeout, the result is a draw.
 - The AI intentionally spends turns placing visible X eliminations. Because X marks do not change legality, this gives the AI extra moves and disadvantages it against a perfect human solution; this was retained by request.
 
@@ -39,8 +40,9 @@ Turn-based race rules:
 - Turn-based AI opponent; each level retains its genuine assigned algorithm.
 - Level unlock progression, persisted in browser local storage in the website.
 - Algorithm comparison on the same verified puzzle, plus an AI Algorithm Visualization Lab.
-- Animated solver traces show real Queen candidates, conflicts, pruning, backtracking, solutions, and the corresponding search tree. Play, pause, reset, step, and playback speed controls are available.
-- Lab statistics use solver execution metrics; visual trace retention is capped at 6,000 events and the rendered tree at 350 nodes to bound memory and rendering work. Search runs in a Web Worker.
+- Animated solver traces show real Queen candidates, conflicts, pruning, backtracking, solutions, and the corresponding search tree in both live matches and the visualization lab. The lab includes play, pause, reset, step, and playback speed controls.
+- The visualization lab includes plain-language, step-by-step guides to Backtracking, A* Search, and Hill Climbing, plus an explanation of each event as it is replayed, the board/tree colors, and how to interpret algorithm-specific statistics.
+- Live-game traces retain up to 6,000 actual events and display up to 2,000 tree nodes; all shipped puzzle traces fit within those limits. Lab statistics use solver execution metrics; its visual trace is capped at 6,000 events and its rendered tree at 350 nodes to bound memory and rendering work. Search runs in a Web Worker.
 - A generated gallery runs the configured solver on the shipped puzzles and displays only solutions that pass the shared validator.
 - Instructions and About screens.
 - Shared `ConstraintChecker` used by humans and every solver.

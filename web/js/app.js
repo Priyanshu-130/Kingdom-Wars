@@ -15,11 +15,50 @@ const appElement = document.getElementById("app");
 const CLICK_DELAY_MS = 300;
 const SOLVER_WORKER_URL = new URL("./solver-worker.js?three-solvers-v2", import.meta.url);
 
+const ALGORITHM_GUIDES = {
+  backtracking: {
+    name: "Basic Backtracking",
+    tagline: "Build a solution one row at a time, and undo choices when a branch gets stuck.",
+    steps: [
+      "Start at the first unfilled row and try its columns from left to right.",
+      "Keep a Queen only if it passes the column, diagonal, and kingdom rules.",
+      "Continue to the next row. If no column works, remove the last Queen and try its next option.",
+      "Finish when every row has a Queen and the complete board passes validation.",
+    ],
+    watch: "On the board, Queens accumulate down the rows. Red marks are rejected trials; purple marks show a Queen being undone.",
+    tradeoff: "Systematic and complete within its limits, but may explore many branches.",
+  },
+  astar: {
+    name: "A* Search",
+    tagline: "Keep legal partial boards in a priority queue and expand the most promising state next.",
+    steps: [
+      "Each search-tree node represents a distinct partial Queen placement.",
+      "Expand the queued state with the smallest f = g + h. Here, g is Queens placed and h estimates Queens remaining.",
+      "Generate legal children for the next empty row; reject conflicts and skip states already explored.",
+      "Stop when an expanded complete board passes the shared puzzle validator.",
+    ],
+    watch: "Blue nodes are generated or expanded states; red nodes violate a rule and amber nodes duplicate an explored state.",
+    tradeoff: "Explores by priority rather than depth-first order. This game’s h = N − g makes f constant at N, so it is a weak guide and is not guaranteed to beat backtracking.",
+  },
+  hill: {
+    name: "Hill Climbing",
+    tagline: "Start with a complete arrangement and improve it by swapping Queens between rows.",
+    steps: [
+      "Create one Queen per row and column, then score diagonal and same-kingdom conflicts.",
+      "Try neighboring boards made by swapping two Queens; the score is the number of rule conflicts.",
+      "Move to a lower-scoring neighbor. Limited sideways moves can cross a flat plateau.",
+      "If no helpful move remains, restart with a new arrangement, up to the configured limit.",
+    ],
+    watch: "The board shows whole candidate arrangements. The score beside an event is its conflict count; a zero-score candidate is accepted only after full validation.",
+    tradeoff: "Can improve quickly, but may get stuck at a local optimum or use up its restart/iteration budget without finding a solution.",
+  },
+};
+
 const INSTRUCTIONS = [
   ["Puzzle rules", "Place exactly N queens on an N×N board so that every row, every column, and every colored kingdom contains one queen. No two queens may share a diagonal. All of these rules must hold at the same time. A board that breaks any one rule is invalid."],
   ["Kingdoms", "The board is partitioned into N connected regions. Connectivity is 4-directional (up, down, left, right). The stored reference solution is never shown during a race and is never used to fake the AI's performance."],
   ["Turn-based race", "You and the AI have separate boards and alternate one move at a time. You move first. A valid Queen placement or an X annotation ends that player's turn; an invalid Queen placement counts as a mistake and keeps your turn. The first player to complete a valid board wins. The round limit is 120 seconds."],
-  ["Equal AI delay", "Every AI action, at every level, waits the same 700 ms before it is revealed. Search runs in a Web Worker. If the solver is still computing after 700 ms, the AI waits until its legal move is ready. Search time and delay never change the algorithm."],
+  ["Equal AI delay", "Every AI action, at every level, waits the same 700 ms before it is revealed. Search runs in a Web Worker. If the solver is still computing after 700 ms, the AI waits until its legal move is ready. The separate live search replay can be slowed to 300, 400, or 500 ms per event; this never changes solver execution time or the fixed reveal delay."],
   ["AI moves and X marks", "Each AI level runs its assigned genuine solver to create a full legal plan, then reveals only one action on each AI turn. The AI revalidates each planned Queen against its own board and recomputes from already-placed Queens if necessary. AI X marks visually show cells ruled out by its Queens; X marks do not block Queen placement or affect mistakes. AI X moves consume turns, as requested."],
   ["Basic Backtracking", "Queens are placed one row at a time. Each legal column is tried. If a partial placement cannot be completed, the algorithm undoes it and tries the next option. This is the reliable baseline solver."],
   ["A* Search", "Each node is an immutable partial placement. g(n) is the number of queens placed. h(n) = N − q(n) estimates remaining placements. f(n) = g(n) + h(n) orders the priority queue. Because every complete solution has path cost N, this heuristic is admissible but weak: f(n) is N for every node, so A* is not claimed to be faster than backtracking. Duplicate states are skipped. Expansion, time, and cancellation limits apply. A* can use substantial memory because it stores a frontier of partial states."],
@@ -43,6 +82,36 @@ function escapeHTML(value) {
 
 function formatTime(value, digits = 3) {
   return value === null || value === undefined ? "—" : `${Number(value).toFixed(digits)}s`;
+}
+
+function explainSearchEvent(event, algorithmKey) {
+  if (!event) return "Run a search, then step through the recorded events to see the solver’s actual decisions.";
+  const position = Number.isInteger(event.row)
+    ? ` at row ${event.row + 1}, column ${event.col + 1}`
+    : "";
+  if (event.type === "solution") return "Solution found: this complete arrangement passed the game’s shared rules validator.";
+  if (event.type === "conflict") {
+    if (algorithmKey === "hill") {
+      return `This swap-neighbor arrangement has a conflict score of ${event.score}; the score counts diagonal and same-kingdom conflict pairs.`;
+    }
+    return `Rejected${position}: placing a Queen here would break a column, diagonal, or kingdom constraint with an existing Queen.`;
+  }
+  if (event.type === "backtrack") return `Backtrack${position}: this branch could not be completed, so the solver removes this Queen and tries another column.`;
+  if (event.type === "prune") return `Pruned${position}: this partial arrangement has already been explored, so A* skips the duplicate state.`;
+  if (event.type === "expand") return `A* expands this queued partial board: it removes the state from its frontier and checks whether it can lead to a solution.`;
+  if (event.type === "explore") {
+    return algorithmKey === "astar"
+      ? `A* creates a legal child state${position} and adds that partial board to its priority queue.`
+      : `Backtracking places a legal Queen${position} and recurses to the next row.`;
+  }
+  if (event.type === "restart") return `Hill Climbing starts a fresh arrangement (restart ${event.depth + 1}) with conflict score ${event.score}.`;
+  if (event.type === "candidate") {
+    return `Hill Climbing evaluates a neighboring arrangement with conflict score ${event.score}; it compares this score with the current board before choosing its next move.`;
+  }
+  if (event.type === "local-optimum") {
+    return `No improving or permitted sideways neighbor remains at score ${event.score}; this attempt is stuck and the solver may restart.`;
+  }
+  return `The solver recorded a ${event.type} event${position}.`;
 }
 
 function workerFailure(label, event) {
@@ -106,6 +175,29 @@ function drawVisualizationBoard(canvas, puzzle, event) {
   context.clearRect(0, 0, size, size);
   const cell = size / puzzle.n;
   const placements = event?.placements || Array(puzzle.n).fill(-1);
+  const conflictedCells = new Set();
+  if (event?.type === "conflict" || event?.type === "prune") {
+    if (Number.isInteger(event.row) && Number.isInteger(event.col)) {
+      conflictedCells.add(cellKey(event.row, event.col));
+    }
+  } else if (Number.isInteger(event?.score) && event.score > 0) {
+    for (let firstRow = 0; firstRow < placements.length; firstRow += 1) {
+      if (placements[firstRow] < 0) continue;
+      for (let secondRow = firstRow + 1; secondRow < placements.length; secondRow += 1) {
+        if (placements[secondRow] < 0) continue;
+        const firstCol = placements[firstRow];
+        const secondCol = placements[secondRow];
+        if (
+          firstCol === secondCol
+          || Math.abs(firstRow - secondRow) === Math.abs(firstCol - secondCol)
+          || puzzle.kingdoms[firstRow][firstCol] === puzzle.kingdoms[secondRow][secondCol]
+        ) {
+          conflictedCells.add(cellKey(firstRow, firstCol));
+          conflictedCells.add(cellKey(secondRow, secondCol));
+        }
+      }
+    }
+  }
   for (let row = 0; row < puzzle.n; row += 1) {
     for (let col = 0; col < puzzle.n; col += 1) {
       const kingdom = puzzle.kingdoms[row][col];
@@ -115,23 +207,41 @@ function drawVisualizationBoard(canvas, puzzle, event) {
       context.strokeStyle = "rgba(8, 14, 28, .62)";
       context.lineWidth = 1;
       context.strokeRect(col * cell, row * cell, cell, cell);
-      if (placements[row] === col) {
+      const isBacktracked = event?.type === "backtrack" && event.row === row && event.col === col;
+      if (placements[row] === col || isBacktracked) {
         context.fillStyle = "#111827";
         context.font = `700 ${Math.round(cell * 0.68)}px Georgia, serif`;
         context.textAlign = "center";
         context.textBaseline = "middle";
         context.fillText("♛", col * cell + cell / 2, row * cell + cell / 2 + 1);
       }
+      if (conflictedCells.has(cellKey(row, col))) {
+        context.strokeStyle = "#ff354f";
+        context.lineWidth = Math.max(3, size / 115);
+        context.strokeRect(col * cell + 2, row * cell + 2, cell - 4, cell - 4);
+      }
     }
   }
   if (Number.isInteger(event?.row) && Number.isInteger(event?.col)) {
-    context.strokeStyle = event.type === "conflict" || event.type === "prune" ? "#ff354f" : "#fff4ad";
+    context.strokeStyle = event.type === "conflict" || event.type === "prune"
+      ? "#ff354f"
+      : event.type === "backtrack" ? "#c084fc" : "#fff4ad";
     context.lineWidth = Math.max(3, size / 115);
     context.strokeRect(event.col * cell + 2, event.row * cell + 2, cell - 4, cell - 4);
+    if (event.type === "conflict" || event.type === "prune") {
+      context.strokeStyle = "#ff354f";
+      context.lineWidth = Math.max(2, size / 180);
+      context.beginPath();
+      context.moveTo(event.col * cell + cell * 0.3, event.row * cell + cell * 0.3);
+      context.lineTo((event.col + 1) * cell - cell * 0.3, (event.row + 1) * cell - cell * 0.3);
+      context.moveTo((event.col + 1) * cell - cell * 0.3, event.row * cell + cell * 0.3);
+      context.lineTo(event.col * cell + cell * 0.3, (event.row + 1) * cell - cell * 0.3);
+      context.stroke();
+    }
   }
 }
 
-function drawSearchTree(canvas, events, cursor, boardSize, lab) {
+function drawSearchTree(canvas, events, cursor, boardSize, lab, nodeLimit = 350) {
   const width = Math.max(300, Math.floor(canvas.clientWidth || 600));
   const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
   if (!lab.treeNodes || cursor < lab.treeCursor) {
@@ -140,7 +250,6 @@ function drawSearchTree(canvas, events, cursor, boardSize, lab) {
     lab.treeById = new Map([["root", root]]);
     lab.treeCursor = 0;
   }
-  const nodeLimit = 350;
   for (let index = lab.treeCursor; index < cursor; index += 1) {
     const event = events[index];
     if (!Number.isInteger(event.id)) continue;
@@ -154,6 +263,7 @@ function drawSearchTree(canvas, events, cursor, boardSize, lab) {
         depth: parent.depth + 1,
         status: event.type,
         sequence: lab.treeNodes.length,
+        visits: 1,
         row: event.row,
         col: event.col,
         score: event.score,
@@ -161,6 +271,7 @@ function drawSearchTree(canvas, events, cursor, boardSize, lab) {
       lab.treeById.set(key, node);
       lab.treeNodes.push(node);
     } else if (node) {
+      node.visits += 1;
       node.status = event.type === "expand" ? "explored" : event.type;
       node.row = Number.isInteger(event.row) ? event.row : node.row;
       node.col = Number.isInteger(event.col) ? event.col : node.col;
@@ -209,8 +320,13 @@ function drawSearchTree(canvas, events, cursor, boardSize, lab) {
     const y = yFor(node.sequence);
     context.beginPath();
     context.fillStyle = colors[node.status] || "#9ca8c4";
-    context.arc(x, y, node.status === "solution" ? 4 : 3, 0, Math.PI * 2);
+    context.arc(x, y, node.status === "solution" ? 4 : node.visits > 1 ? 5 : 3, 0, Math.PI * 2);
     context.fill();
+    if (node.visits > 1) {
+      context.fillStyle = "#c084fc";
+      context.font = "10px Segoe UI, sans-serif";
+      context.fillText(`x${node.visits}`, x + 6, y + 3);
+    }
     if (node.row !== undefined && node.row !== null) {
       context.fillStyle = "#eceef6";
       context.font = "10px Segoe UI, sans-serif";
@@ -251,6 +367,18 @@ class KingdomWarsBrowserApp {
       galleryFailures: [],
       galleryBusy: false,
     };
+    this.searchState = {
+      events: [],
+      cursor: 0,
+      speedMs: 400,
+      timer: null,
+      playbackStartedAt: null,
+      result: null,
+      traceTruncated: false,
+      treeNodes: null,
+      treeById: null,
+      treeCursor: 0,
+    };
     this.pendingX = null;
     this.notice = "";
     this.interval = window.setInterval(() => this.tick(), 100);
@@ -260,6 +388,7 @@ class KingdomWarsBrowserApp {
     this.root.addEventListener("contextmenu", (event) => this.handleContextMenu(event));
     window.addEventListener("resize", () => {
       if (this.currentScreen === "lab") this.drawLab();
+      if (this.currentScreen === "puzzle") this.drawSearch();
     });
     this.render();
   }
@@ -359,6 +488,24 @@ class KingdomWarsBrowserApp {
           <p class="play-hint">Single-click or right-click to mark X; double-click to place or remove a Queen. Every X or legal Queen action ends your turn. Invalid Queen placements count as mistakes and do not end your turn.</p>
         </aside>
       </div>
+      <section class="panel live-search">
+        <div class="live-search-heading">
+          <div><h2>AI search replay</h2><p>Real solver events, replayed independently of solver execution and the fixed AI reveal delay.</p></div>
+          <label>Step interval
+            <select data-search-speed aria-label="AI search visualization speed">
+              ${[300, 400, 500].map((speed) => `<option value="${speed}"${this.searchState.speedMs === speed ? " selected" : ""}>${speed} ms</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <p class="live-search-status" id="search-status">Waiting for the solver to start.</p>
+        <p class="live-search-time" id="search-time">Solver execution: — · Visualization: 0.0s</p>
+        <div class="live-search-progress"><progress id="search-progress" max="1" value="0"></progress><span id="search-event">0 events</span></div>
+        <p class="search-legend">Playback retains up to 6,000 real events; the live tree displays up to 2,000 nodes.</p>
+        <div class="live-search-visuals">
+          <article><h3>Current search board</h3><canvas id="search-board" aria-label="Animated AI search board"></canvas><p class="search-legend">Red: rejected/conflicting · Purple: backtracked · Gold: current placement</p></article>
+          <article class="search-tree-card"><h3>Search tree</h3><div class="search-tree-scroll"><canvas id="search-tree" aria-label="Animated search tree"></canvas></div></article>
+        </div>
+      </section>
     </section>`;
   }
 
@@ -444,6 +591,15 @@ class KingdomWarsBrowserApp {
 
   renderLab() {
     const lab = this.labState;
+    const algorithmGuides = Object.entries(ALGORITHM_GUIDES).map(([key, guide]) =>
+      `<details class="panel algorithm-guide"${key === lab.algorithmKey ? " open" : ""}>
+        <summary>${escapeHTML(guide.name)}${key === lab.algorithmKey ? ' <span class="guide-selected">Selected</span>' : ""}</summary>
+        <p class="guide-tagline">${escapeHTML(guide.tagline)}</p>
+        <ol>${guide.steps.map((step) => `<li>${escapeHTML(step)}</li>`).join("")}</ol>
+        <p><strong>What to watch:</strong> ${escapeHTML(guide.watch)}</p>
+        <p><strong>Trade-off:</strong> ${escapeHTML(guide.tradeoff)}</p>
+      </details>`,
+    ).join("");
     const algorithms = [...new Map(LEVEL_SPECS.map((spec) => [
       spec.algorithmKey,
       { key: spec.algorithmKey, title: spec.algorithm },
@@ -474,6 +630,7 @@ class KingdomWarsBrowserApp {
     const eventLabel = event
       ? `${lab.cursor}/${lab.events.length} · ${event.type}${Number.isInteger(event.row) ? ` · row ${event.row + 1}, column ${event.col + 1}` : ""}`
       : lab.result ? "Ready at start" : "Run a genuine solver to create a visualization.";
+    const eventExplanation = explainSearchEvent(event, lab.algorithmKey);
     return `<section class="screen lab-screen">
       <header class="screen-header">
         <button class="button" data-action="menu">Main Menu</button>
@@ -485,6 +642,11 @@ class KingdomWarsBrowserApp {
         <button class="button button-primary" data-action="lab-run"${lab.busy ? " disabled" : ""}>${lab.busy ? "Searching…" : "Run Search"}</button>
         <button class="button" data-action="compare">Compare Algorithms</button>
         <button class="button" data-action="lab-gallery"${lab.galleryBusy ? " disabled" : ""}>${lab.galleryBusy ? "Building…" : "Generate Solution Gallery"}</button>
+      </section>
+      <section class="lab-guide-section" aria-label="How the algorithms work">
+        <h2>How the search algorithms work</h2>
+        <p class="muted">Each level uses its assigned algorithm. Open a card to read its steps; the highlighted method is selected above. These are different real search strategies, not animations of one shared route.</p>
+        <div class="algorithm-guides">${algorithmGuides}</div>
       </section>
       ${lab.error ? `<p class="error-banner" role="alert">${escapeHTML(lab.error)}</p>` : ""}
       ${lab.traceTruncated ? '<p class="lab-note">The search completed in full. The animation is capped at 6,000 real events and the tree canvas at 350 nodes to keep the browser responsive; summary statistics cover the full run.</p>' : ""}
@@ -499,26 +661,31 @@ class KingdomWarsBrowserApp {
           </select></label>
         </div>
         <p class="lab-event" id="lab-event">${escapeHTML(eventLabel)}</p>
+        <p class="lab-event-explanation" id="lab-event-explanation">${escapeHTML(eventExplanation)}</p>
         <progress class="lab-progress" max="${Math.max(1, lab.events.length)}" value="${lab.cursor}">${lab.cursor}/${lab.events.length}</progress>
       </section>
       <div class="lab-visuals">
-        <section class="panel lab-card"><h2>Search board</h2><canvas id="lab-board" aria-label="Animated chessboard search state"></canvas></section>
-        <section class="panel lab-card"><h2>Synchronized search tree</h2><p class="muted lab-tree-note">The canvas displays up to 350 real search nodes; the complete solver statistics remain available above.</p><div class="lab-tree-scroll"><canvas id="lab-tree" aria-label="Search tree of explored and rejected branches"></canvas></div></section>
+        <section class="panel lab-card"><h2>Search board</h2><p class="muted lab-tree-note">Shows the exact Queen arrangement from the current solver event. Red marks a rejected/conflicting position; purple marks backtracking; gold marks the current trial.</p><canvas id="lab-board" aria-label="Animated chessboard search state"></canvas></section>
+        <section class="panel lab-card"><h2>Synchronized search tree</h2><p class="muted lab-tree-note">Each dot is a real partial board or candidate, connected to its parent when the solver trace provides that relationship. Color shows the event outcome; repeated dots indicate a revisited state.</p><p class="tree-legend">Blue: explored · Red: conflict · Amber: duplicate/pruned · Purple: backtrack · Green: solution · Gold: restart</p><p class="muted lab-tree-note">The canvas displays up to 350 real search nodes; complete solver statistics remain available below.</p><div class="lab-tree-scroll"><canvas id="lab-tree" aria-label="Search tree of explored and rejected branches"></canvas></div></section>
       </div>
       <section class="lab-stats" aria-label="Search statistics">
-        <article class="panel"><span>Nodes explored</span><strong>${statistics.nodesExplored}</strong></article>
-        <article class="panel"><span>Conflicts</span><strong>${statistics.conflicts}</strong></article>
-        <article class="panel"><span>Backtracks</span><strong>${statistics.backtracks}</strong></article>
-        <article class="panel"><span>Pruned branches</span><strong>${statistics.prunedBranches}</strong></article>
-        <article class="panel"><span>Execution time</span><strong>${formatTime(statistics.elapsedSeconds, 4)}</strong></article>
+        <article class="panel"><span>Nodes explored</span><strong>${statistics.nodesExplored}</strong><small>States/candidates examined; exact meaning depends on the algorithm.</small></article>
+        <article class="panel"><span>Conflicts</span><strong>${statistics.conflicts}</strong><small>Violations or objective-conflict pairs counted by this solver.</small></article>
+        <article class="panel"><span>Backtracks</span><strong>${statistics.backtracks}</strong><small>Undone choices for backtracking; hill climbing does not backtrack.</small></article>
+        <article class="panel"><span>Pruned branches</span><strong>${statistics.prunedBranches}</strong><small>Branches/candidates skipped by this algorithm’s search rules.</small></article>
+        <article class="panel"><span>Execution time</span><strong>${formatTime(statistics.elapsedSeconds, 4)}</strong><small>Measured solver runtime, not the slower animation playback.</small></article>
       </section>
-      <p class="lab-metric-note">Counters come from this completed solver run. Their exact meaning is algorithm-specific (for example, Hill Climbing counts objective-conflict pairs and has no backtracking), so raw counts are not directly comparable across algorithms.</p>
+      <p class="lab-metric-note">These counters come from the completed solver run. Algorithms count work differently, so raw totals are useful for understanding one run but should not be treated as a direct performance comparison.</p>
       ${lab.result ? `<section class="panel lab-summary"><h2>${escapeHTML(lab.result.algorithmName)} · ${lab.result.success ? "solution found" : escapeHTML(lab.result.terminationReason)}</h2><p>${lab.result.success ? `Valid solution: ${lab.result.solution.map((col) => col + 1).join(", ")}` : "This real search did not find a solution within its configured limits."}</p></section>` : ""}
       <section class="panel solution-gallery">      <div class="gallery-heading"><h2>Valid solution gallery</h2><p>${lab.gallery.length ? `${lab.gallery.length} solutions produced by the configured solvers.${lab.galleryFailures.length ? ` Search did not find solutions for: ${lab.galleryFailures.join(", ")}.` : ""}` : "Generate solutions with actual solver runs across the shipped puzzles."}</p></div><div class="gallery-grid">${gallery || '<p class="muted">No generated solutions yet.</p>'}</div></section>
     </section>`;
   }
 
   handleLabChange(event) {
+    if (event.target.matches("[data-search-speed]")) {
+      this.searchState.speedMs = Number(event.target.value);
+      return;
+    }
     const control = event.target.dataset.labControl;
     if (control === "algorithm" || control === "puzzle") {
       this.stopLabPlayback();
@@ -685,6 +852,8 @@ class KingdomWarsBrowserApp {
         ? `${lab.cursor}/${lab.events.length} · ${current.type}${Number.isInteger(current.row) ? ` · row ${current.row + 1}, column ${current.col + 1}` : ""}`
         : lab.result ? "Ready at start" : "Run a genuine solver to create a visualization.";
     }
+    const explanation = this.root.querySelector("#lab-event-explanation");
+    if (explanation) explanation.textContent = explainSearchEvent(current, lab.algorithmKey);
     if (progress) {
       progress.max = Math.max(1, lab.events.length);
       progress.value = lab.cursor;
@@ -810,6 +979,7 @@ class KingdomWarsBrowserApp {
     this.stopRoundWorker();
     this.pendingX = null;
     this.notice = "";
+    this.resetSearch();
     const puzzle = puzzleFor(level, game);
     this.round = new GameRound(puzzle, performance.now(), DEFAULT_CONFIG);
     this.currentScreen = "puzzle";
@@ -823,10 +993,15 @@ class KingdomWarsBrowserApp {
     this.worker = worker;
     worker.addEventListener("message", (event) => {
       if (round !== this.round) return;
-      if (event.data.type === "result") {
+      if (event.data.type === "trace") {
+        this.addSearchEvents(event.data.events);
+      } else if (event.data.type === "result") {
+        this.searchState.result = event.data.result;
+        this.searchState.traceTruncated = event.data.result.traceTruncated === true;
         round.setAIPlan(event.data.result, performance.now());
         if (this.worker === worker) this.stopRoundWorker();
         this.handleRoundChange();
+        this.updateSearchStatus();
       } else if (event.data.type === "error") {
         this.handleWorkerError(event.data.message, round);
       }
@@ -841,7 +1016,100 @@ class KingdomWarsBrowserApp {
       config: DEFAULT_CONFIG,
       startedAtEpoch: performance.timeOrigin + round.startedAt,
       fixedQueens,
+      traceSearch: true,
     });
+  }
+
+  resetSearch() {
+    if (this.searchState.timer !== null) window.clearTimeout(this.searchState.timer);
+    Object.assign(this.searchState, {
+      events: [],
+      cursor: 0,
+      timer: null,
+      playbackStartedAt: null,
+      result: null,
+      traceTruncated: false,
+      treeNodes: null,
+      treeById: null,
+      treeCursor: 0,
+    });
+  }
+
+  addSearchEvents(events) {
+    this.searchState.events.push(...events);
+    if (this.currentScreen === "puzzle") this.startSearchPlayback();
+  }
+
+  startSearchPlayback() {
+    const state = this.searchState;
+    if (state.timer !== null || state.cursor >= state.events.length) {
+      this.updateSearchStatus();
+      return;
+    }
+    if (state.playbackStartedAt === null) state.playbackStartedAt = performance.now();
+    const advance = () => {
+      state.timer = null;
+      if (state.cursor >= state.events.length) {
+        this.updateSearchTime();
+        this.updateSearchStatus();
+        return;
+      }
+      state.cursor += 1;
+      this.drawSearch();
+      state.timer = window.setTimeout(advance, state.speedMs);
+    };
+    advance();
+  }
+
+  drawSearch() {
+    const state = this.searchState;
+    const board = this.root.querySelector("#search-board");
+    const tree = this.root.querySelector("#search-tree");
+    if (!board || !tree || !this.round) return;
+    const puzzle = this.round.puzzle;
+    const current = state.cursor ? state.events[state.cursor - 1] : null;
+    drawVisualizationBoard(board, puzzle, current);
+    drawSearchTree(tree, state.events, state.cursor, puzzle.n, state, 2_000);
+    const progress = this.root.querySelector("#search-progress");
+    const eventLabel = this.root.querySelector("#search-event");
+    if (progress) {
+      progress.max = Math.max(1, state.events.length);
+      progress.value = state.cursor;
+    }
+    if (eventLabel) {
+      eventLabel.textContent = current
+        ? `${state.cursor}/${state.events.length} · ${current.type}${Number.isInteger(current.row) ? ` · row ${current.row + 1}, column ${current.col + 1}` : ""}${Number.isInteger(current.score) ? ` · conflict score ${current.score}` : ""}`
+        : `${state.events.length} real events queued`;
+    }
+    this.updateSearchTime();
+    this.updateSearchStatus();
+  }
+
+  updateSearchTime() {
+    const timeLabel = this.root.querySelector("#search-time");
+    if (!timeLabel) return;
+    const visualizationSeconds = this.searchState.playbackStartedAt === null
+      ? 0
+      : (performance.now() - this.searchState.playbackStartedAt) / 1000;
+    timeLabel.textContent = `Solver execution: ${formatTime(this.searchState.result?.elapsedSeconds, 4)} · Visualization: ${visualizationSeconds.toFixed(1)}s`;
+  }
+
+  updateSearchStatus() {
+    const status = this.root.querySelector("#search-status");
+    if (!status) return;
+    const state = this.searchState;
+    const result = state.result;
+    if (state.cursor < state.events.length) {
+      status.textContent = result
+        ? `${result.algorithmName}: replaying the recorded search${state.traceTruncated ? " (trace capped at 6,000 events)" : ""}.`
+        : "Solver running; replaying its recorded search events.";
+    } else if (!result) {
+      status.textContent = state.events.length
+        ? "Recorded events shown so far; waiting for the solver to finish."
+        : "Solver is searching; its first recorded event will appear here.";
+    } else {
+      status.textContent = `${result.algorithmName}: ${result.success ? "solution found" : result.terminationReason}; replay complete${state.traceTruncated ? " (trace capped at 6,000 events)" : ""}.`;
+    }
   }
 
   stopRoundWorker() {
@@ -855,7 +1123,7 @@ class KingdomWarsBrowserApp {
     console.error("Kingdom Wars solver worker failed:", message);
     this.stopRoundWorker();
     if (round !== this.round || round.result) return;
-    round.setAIPlan({
+    const solverError = {
       algorithmName: "unknown",
       success: false,
       solution: null,
@@ -865,14 +1133,19 @@ class KingdomWarsBrowserApp {
       randomSeed: null,
       foundAtMonotonic: null,
       raceElapsedSeconds: null,
-    }, performance.now());
+    };
+    this.searchState.result = solverError;
+    round.setAIPlan(solverError, performance.now());
     this.handleRoundChange();
+    this.updateSearchStatus();
   }
 
   leaveRound() {
     if (this.pendingX) this.flushPendingX();
     this.round?.abandon();
     this.stopRoundWorker();
+    if (this.searchState.timer !== null) window.clearTimeout(this.searchState.timer);
+    this.searchState.timer = null;
     this.currentScreen = "levels";
   }
 
@@ -927,6 +1200,7 @@ class KingdomWarsBrowserApp {
 
   tick() {
     if (this.currentScreen !== "puzzle" || !this.round) return;
+    this.updateSearchTime();
     const now = performance.now();
     const previousAIActions = this.round.aiActions;
     this.round.tick(now);
@@ -936,6 +1210,7 @@ class KingdomWarsBrowserApp {
     }
     if (this.round.aiNeedsReplan && !this.worker) {
       this.round.aiNeedsReplan = false;
+      this.resetSearch();
       this.startSolverWorker(
         this.round,
         this.round.puzzle,
@@ -961,6 +1236,8 @@ class KingdomWarsBrowserApp {
     if (!this.round) return;
     if (this.round.result) {
       this.stopRoundWorker();
+      if (this.searchState.timer !== null) window.clearTimeout(this.searchState.timer);
+      this.searchState.timer = null;
       this.pendingX = null;
       this.lastRound = this.round;
       this.lastResult = this.round.result;
@@ -1015,6 +1292,7 @@ class KingdomWarsBrowserApp {
       this.round.aiXMarks,
       { cellSize, disabled: true, label: "AI board" },
     );
+    this.drawSearch();
   }
 }
 
