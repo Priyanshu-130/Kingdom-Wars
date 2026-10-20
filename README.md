@@ -1,13 +1,15 @@
 # Kingdom Wars: The AI Queen Race
 
-A local Python + Pygame desktop game that combines the N-Queens puzzle with colored-region (“kingdom”) constraints. A human player races an AI solver on the same immutable puzzle, using independent boards. Four levels use four different algorithms: basic backtracking, MRV + forward checking, A* search, and hill climbing.
+Kingdom Wars is a browser-native N-Queens strategy game with connected colored-kingdom constraints and a hidden human-versus-AI race. The playable website in [`web/`](./web/) uses only HTML, CSS, and vanilla JavaScript; all four AI solvers run in a Web Worker. It is a static site and needs no Python, Pygame, Pygbag, WebAssembly, backend, or application runtime.
+
+The original Python + Pygame desktop edition remains in `src/` as a tested reference implementation. Its puzzle data, game rules, solver results, and progression behavior are the source used to validate the browser migration.
 
 ## Objectives
 
 - Model a constraint-satisfaction puzzle that is stricter than classic N-Queens.
 - Implement four search algorithms behind one shared validator.
 - Run a fair hidden race: the AI does not see human placements, and live AI progress is not shown.
-- Keep the Pygame loop responsive by solving on a background thread.
+- Keep browser interaction responsive by solving in a Web Worker.
 - Produce a project a CSE student can explain in a viva: state, constraints, heuristics, complexity, and honest failure cases.
 
 ## Game rules
@@ -26,7 +28,7 @@ Kingdoms are N connected 4-directional regions. Single-click a cell to toggle an
 Race rules:
 
 - Both competitors start from the same round-start event.
-- Timing uses `time.perf_counter()`, not the wall clock.
+- Timing uses a monotonic clock (`time.perf_counter()` in Python and `performance.now()` in the browser), not the wall clock.
 - Default round limit: **120 seconds** (`SolverConfig.round_time_limit_seconds`).
 - The race does not end when only one side solves.
 - If both solve, timestamps are compared. If they differ by at most **0.05s**, the result is a draw.
@@ -36,7 +38,7 @@ Race rules:
 
 - Four levels × three games (12 verified puzzles).
 - Hidden human-vs-AI race with independent boards.
-- Level unlock progression, persisted in `data/progress.json` when the disk is writable.
+- Level unlock progression, persisted in browser local storage in the website.
 - Algorithm comparison on the same verified puzzle.
 - Instructions and About screens.
 - Shared `ConstraintChecker` used by humans and every solver.
@@ -44,13 +46,10 @@ Race rules:
 
 ## Technology stack
 
-- CPython 3.13 (64-bit on Windows)
-- pygame-ce 2.5.8
-- Pygbag 0.9.3 (browser build)
-- pytest
-- Standard library: `heapq`, `concurrent.futures`, `threading`, `json`, `dataclasses`
-
-The desktop game uses a background worker for AI search. The browser build uses the same solver and runs it synchronously because browser Python does not provide the desktop thread pool; browser progress is stored in local storage. No application server, database, authentication, or cloud API is required.
+- Website: HTML5, CSS, vanilla JavaScript, Web Workers, browser local storage.
+- Website has no external JavaScript packages or runtime dependencies.
+- Reference desktop app and tests: CPython 3.13 (64-bit on Windows), pygame-ce, and pytest.
+- GitHub Pages hosts the static files in `web/`; the site has no server-side component.
 
 ## Prerequisites
 
@@ -88,53 +87,49 @@ Alternative:
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-## Browser build (Pygbag)
+## Native browser app
 
-The root `main.py` remains the game entry point for both the desktop launcher and Pygbag. The browser entry uses an asynchronous Pygame loop that yields to the browser event loop each frame and renders the existing 1100×700 layout to the browser canvas. In browser mode, mouse positions are normalized against the canvas's current CSS size because Pygbag's SDL `SCALED` display otherwise scales pointer coordinates a second time, breaking button and board hit-testing. It keeps all four solvers, the colored-kingdom puzzles, the 12-game progression, the hidden AI race, the mistake limit, and the comparison screen.
+Open [`web/index.html`](./web/index.html) through any static file host, or use the deployed GitHub Pages site. The page, stylesheet, puzzle data, game rules, and algorithms are all plain files; the browser runs the AI in `web/js/solver-worker.js`. There is no compile/build step. A static preview extension can serve `web/` locally; this is only for previewing and is not part of the deployed game's runtime.
 
-From the project root, install the requirements and build/serve the web version:
+The browser version preserves the source's 12 exact puzzle layouts and their kingdom colors. Its backtracking, MRV + forward checking, A*, and seeded Hill Climbing implementations return the same solutions and search metrics as the Python algorithms on the shipped puzzles. Queen placements are checked by the same row, column, diagonal, and kingdom constraints; X marks are independent; mistake counts, the three-mistake failure, race clock, tie tolerance, hidden AI, result reveal, comparison screen, and unlock progression are retained. Progress is stored under `kingdom-wars-progress` in local storage.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pygbag main.py
-```
-
-Open `http://localhost:8000` in a browser. For a build without starting the local server:
+Run native browser logic tests with Node.js (built-in test runner; no npm install):
 
 ```powershell
-.\.venv\Scripts\python.exe -m pygbag --build main.py
-.\.venv\Scripts\python.exe scripts\prepare_web_build.py
+node --test tests\js\game.test.mjs
 ```
 
-The generated site is in `build/web/`. To serve it locally after building:
+The complete Python reference regression suite remains available:
 
 ```powershell
-Push-Location build\web
-..\..\.venv\Scripts\python.exe -m http.server 9000
-Pop-Location
+.\.venv\Scripts\python.exe -m pytest -q
 ```
-
-Open `http://localhost:9000`. Use port 9000 for a plain static server: Pygbag rewrites package CDN requests to `/cdn/` on localhost ports beginning with 8, which requires Pygbag's own development server. In browser games, click once to mark X and double-click to place/remove a queen; right-click remains an X-mark shortcut. Browser progression persists in local storage. AI solving and the algorithm-comparison screen run synchronously in the browser, so a search can briefly pause rendering; the desktop version retains its background AI worker. Pygbag 0.9.3's default template points to a missing BrowserFS asset, so the build preparation script switches that one reference to the version-pinned BrowserFS CDN; the script fails if Pygbag's generated template no longer matches the expected reference.
 
 ### GitHub Pages
 
-The `Pygbag GitHub Pages` workflow builds and tests on pushes to `master` and can also be started manually from the repository's **Actions** tab. It publishes the generated `build/web/` files to the `gh-pages` branch. To enable the published site:
+The **Native Kingdom Wars Pages** workflow validates and deploys the static `web/` directory on pushes to `master` or `main`, and can also be started from **Actions**. It does not install Python, run Pygbag, or compile a browser package.
+
+To enable deployment:
 
 1. Open [Settings → Pages](https://github.com/Priyanshu-130/Kingdom-Wars/settings/pages).
-2. Under **Build and deployment**, choose **Deploy from a branch**.
-3. Select branch `gh-pages` and folder `/(root)`, then save.
-4. Wait for the Pages deployment workflow to complete. The project site URL is `https://priyanshu-130.github.io/Kingdom-Wars/`.
+2. Under **Build and deployment**, select **GitHub Actions** as the source.
+3. Push to `master` (or manually run **Native Kingdom Wars Pages** in Actions).
+4. After the workflow succeeds, the site URL is `https://priyanshu-130.github.io/Kingdom-Wars/`.
 
-The Actions workflow is granted only `contents: write`, required to update `gh-pages`. Until the workflow succeeds and Pages is enabled, the game is not deployed.
+The workflow uses only the `pages: write` and `id-token: write` permissions required by GitHub Pages deployment, plus read-only repository contents access.
 
 ## Project structure
 
 ```
-main.py
-requirements.txt
+web/
+  index.html
+  styles.css
+  js/               puzzle data, validation, solvers, race state, worker, UI
+main.py             legacy desktop entry point
+requirements.txt    legacy desktop/test dependencies
 README.md
 VIVA_PREPARATION.md
+tests/js/           native browser logic tests
 src/
   app.py
   models/          puzzle, board, solver/round results, config
