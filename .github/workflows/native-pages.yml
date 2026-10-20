@@ -30,6 +30,7 @@ jobs:
           test -s web/styles.css
           test -s web/js/app.js
           test -s web/js/solver-worker.js
+          test -s web/js/config.js
           test -s web/js/rules.js
           test -s web/js/solvers.js
           test -s web/js/race.js

@@ -5,10 +5,14 @@ import {
   validateComplete,
   validateRowColumns,
 } from "./rules.js";
+import { AI_MOVE_DELAY_MS } from "./config.js";
+import { GAMES_PER_LEVEL, LEVEL_COUNT } from "./puzzles.js?three-tiers-v2";
 
 export const MAX_MISTAKES = 3;
 export const ROUND_TIME_LIMIT_SECONDS = 120;
 export const NEAR_SIMULTANEOUS_TOLERANCE = 0.05;
+const PROGRESS_VERSION = 2;
+const PROGRESS_STORAGE_KEY = "kingdom-wars-progress";
 
 export class GameRound {
   constructor(puzzle, startedAt = performance.now(), config = {}) {
@@ -16,11 +20,14 @@ export class GameRound {
     this.startedAt = startedAt;
     this.timeLimit = config.round_time_limit_seconds ?? ROUND_TIME_LIMIT_SECONDS;
     this.tolerance = config.near_simultaneous_tolerance ?? NEAR_SIMULTANEOUS_TOLERANCE;
+    this.aiMoveDelayMs = config.ai_move_delay_ms ?? AI_MOVE_DELAY_MS;
     this.deadline = startedAt + this.timeLimit * 1000;
-    this.phase = "RUNNING";
+    this.phase = "HUMAN_TURN";
+    this.currentTurn = "human";
     this.humanQueens = new Set();
     this.aiQueens = new Set();
     this.xMarks = new Set();
+    this.aiXMarks = new Set();
     this.invalidCells = new Set();
     this.countedMistakeCells = new Set();
     this.mistakes = 0;
@@ -30,6 +37,15 @@ export class GameRound {
     this.humanTime = null;
     this.aiTime = null;
     this.solverResult = null;
+    this.aiPlan = null;
+    this.aiPlanReady = false;
+    this.aiPlanReadyAt = null;
+    this.aiTurnStartedAt = null;
+    this.aiRevealAt = null;
+    this.aiLastAction = null;
+    this.aiNeedsReplan = false;
+    this.aiActions = 0;
+    this.lastAIMove = null;
     this.result = null;
   }
 
@@ -42,8 +58,7 @@ export class GameRound {
   }
 
   canEdit() {
-    return !this.result && ["RUNNING", "COMPETITOR_FINISHED"].includes(this.phase)
-      && !this.humanValid;
+    return !this.result && this.currentTurn === "human";
   }
 
   toggleHuman(row, col, now = performance.now()) {
@@ -52,7 +67,8 @@ export class GameRound {
     if (this.humanQueens.has(key)) {
       this.humanQueens.delete(key);
       this.humanFeedback = humanFeedback(this.puzzle, this.humanPlacements());
-      return;
+      this.finishHumanTurn(now);
+      return true;
     }
     const errors = placementConflicts(this.puzzle, this.humanPlacements(), [row, col]);
     if (errors.length > 0) {
@@ -65,74 +81,155 @@ export class GameRound {
         `Invalid queen placement: ${errors.slice(0, 3).join(" ")} `
         + `Mistakes: ${this.mistakes}/${MAX_MISTAKES}.`;
       if (this.mistakes >= MAX_MISTAKES) this.finalizeFailure();
-      return;
+      return false;
     }
     this.invalidCells.delete(key);
     this.humanQueens.add(key);
     this.humanFeedback = humanFeedback(this.puzzle, this.humanPlacements());
-  }
-
-  toggleXMark(row, col) {
-    if (!this.canEdit() || !this.inBounds(row, col)) return;
-    const key = cellKey(row, col);
-    if (this.xMarks.has(key)) this.xMarks.delete(key);
-    else this.xMarks.add(key);
-  }
-
-  submit(now = performance.now()) {
-    if (!this.canEdit()) return false;
-    const report = validateComplete(this.puzzle, this.humanPlacements());
-    if (!report.valid) {
-      this.humanFeedback = `Submission rejected. ${report.errors.join(" ") || "Solution is incomplete or invalid."}`;
-      return false;
+    if (validateComplete(this.puzzle, this.humanPlacements()).valid) {
+      this.humanValid = true;
+      this.humanTime = this.elapsed(now);
+      this.finalize("human_win", now, ["You completed a valid solution."]);
+      return true;
     }
-    this.humanValid = true;
-    this.humanTime = Math.max(0, (now - this.startedAt) / 1000);
-    this.humanFeedback = "Valid solution locked.";
-    this.phase = "COMPETITOR_FINISHED";
-    this.maybeFinalize(now);
+    this.finishHumanTurn(now);
     return true;
   }
 
-  applyAIResult(solverResult, now = performance.now()) {
-    if (this.result || this.solverResult !== null) return;
+  toggleXMark(row, col, now = performance.now()) {
+    if (!this.canEdit() || !this.inBounds(row, col)) return false;
+    const key = cellKey(row, col);
+    if (this.xMarks.has(key)) this.xMarks.delete(key);
+    else this.xMarks.add(key);
+    this.finishHumanTurn(now);
+    return true;
+  }
+
+  finishHumanTurn(now) {
+    if (this.result) return;
+    this.currentTurn = "ai";
+    this.phase = "AI_THINKING";
+    this.aiTurnStartedAt = now;
+    this.aiRevealAt = now + this.aiMoveDelayMs;
+  }
+
+  setAIPlan(solverResult, now = performance.now()) {
+    if (this.result) return false;
     this.solverResult = solverResult;
-    if (solverResult.success && solverResult.solution !== null) {
-      const report = validateRowColumns(this.puzzle, solverResult.solution);
-      if (report.valid) {
-        this.aiValid = true;
-        this.aiQueens = new Set(
-          solverResult.solution.map((col, row) => cellKey(row, col)),
-        );
-        this.aiTime = solverResult.raceElapsedSeconds
-          ?? (solverResult.foundAtMonotonic !== null
-            ? (solverResult.foundAtMonotonic - this.startedAt) / 1000
-            : solverResult.elapsedSeconds);
-        if (this.phase === "RUNNING") this.phase = "COMPETITOR_FINISHED";
-      }
+    this.aiPlanReadyAt = now;
+    const report = solverResult.success && solverResult.solution !== null
+      ? validateRowColumns(this.puzzle, solverResult.solution)
+      : { valid: false };
+    const extendsCurrentBoard = report.valid && this.aiPlacements().every(([row, col]) =>
+      solverResult.solution[row] === col,
+    );
+    if (!extendsCurrentBoard) {
+      this.aiPlan = null;
+      this.aiPlanReady = false;
+      this.finalize(
+        "human_win",
+        now,
+        [`AI could not find a legal continuation (${solverResult.terminationReason}).`],
+      );
+      return false;
     }
-    this.maybeFinalize(now);
+    this.aiPlan = [...solverResult.solution];
+    this.aiPlanReady = true;
+    this.aiNeedsReplan = false;
+    return true;
   }
 
   tick(now = performance.now()) {
     if (this.result) return this.result;
-    if (now >= this.deadline) this.maybeFinalize(now);
+    if (now >= this.deadline) {
+      this.finalize("draw", now, ["The round time limit expired before either player solved the puzzle."]);
+      return this.result;
+    }
+    if (
+      this.currentTurn === "ai"
+      && this.aiPlanReady
+      && this.aiRevealAt !== null
+      && now >= this.aiRevealAt
+      && now >= this.aiPlanReadyAt
+    ) {
+      this.revealAIMove(now);
+    }
     return this.result;
+  }
+
+  revealAIMove(now) {
+    if (this.result || this.currentTurn !== "ai" || !this.aiPlanReady) return false;
+
+    let action = null;
+    if (this.aiLastAction === "queen" && this.aiQueens.size < this.puzzle.n - 1) {
+      const cell = this.nextAIElimination();
+      if (cell) {
+        const key = cellKey(...cell);
+        this.aiXMarks.add(key);
+        this.aiLastAction = "x";
+        action = { type: "x", row: cell[0], col: cell[1] };
+      }
+    }
+    if (!action) {
+      const nextQueen = this.nextAIQueen();
+      if (!nextQueen) {
+        this.aiNeedsReplan = true;
+        this.aiPlanReady = false;
+        return false;
+      }
+      const key = cellKey(...nextQueen);
+      this.aiQueens.add(key);
+      this.aiLastAction = "queen";
+      action = { type: "queen", row: nextQueen[0], col: nextQueen[1] };
+      if (validateComplete(this.puzzle, this.aiPlacements()).valid) {
+        this.aiValid = true;
+        this.aiTime = this.elapsed(now);
+        this.lastAIMove = action;
+        this.aiActions += 1;
+        this.finalize("ai_win", now, ["The AI completed a valid solution."]);
+        return true;
+      }
+    }
+
+    this.lastAIMove = action;
+    this.aiActions += 1;
+    this.currentTurn = "human";
+    this.phase = "HUMAN_TURN";
+    this.aiTurnStartedAt = null;
+    this.aiRevealAt = null;
+    return true;
+  }
+
+  nextAIQueen() {
+    if (!this.aiPlan) return null;
+    const placements = this.aiPlacements();
+    for (let row = 0; row < this.aiPlan.length; row += 1) {
+      const col = this.aiPlan[row];
+      if (this.aiQueens.has(cellKey(row, col))) continue;
+      if (placementConflicts(this.puzzle, placements, [row, col]).length === 0) {
+        return [row, col];
+      }
+    }
+    return null;
+  }
+
+  nextAIElimination() {
+    const placements = this.aiPlacements();
+    for (let row = 0; row < this.puzzle.n; row += 1) {
+      for (let col = 0; col < this.puzzle.n; col += 1) {
+        const key = cellKey(row, col);
+        if (this.aiQueens.has(key) || this.aiXMarks.has(key)) continue;
+        if (placementConflicts(this.puzzle, placements, [row, col]).length > 0) {
+          return [row, col];
+        }
+      }
+    }
+    return null;
   }
 
   abandon() {
     if (this.result) return this.result;
-    this.phase = "ROUND_FINALIZED";
-    this.result = {
-      outcome: "abandoned",
-      humanValid: false,
-      aiValid: false,
-      humanTime: this.humanTime,
-      aiTime: null,
-      solverResult: null,
-      notes: ["Round abandoned; progression is not awarded."],
-      mistakes: this.mistakes,
-    };
+    this.finalize("abandoned", performance.now(), ["Round abandoned; progression is not awarded."]);
     return this.result;
   }
 
@@ -140,62 +237,36 @@ export class GameRound {
     return [...this.humanQueens].map((key) => key.split(",").map(Number));
   }
 
-  inBounds(row, col) {
-    return row >= 0 && row < this.puzzle.n && col >= 0 && col < this.puzzle.n;
+  aiPlacements() {
+    return [...this.aiQueens].map((key) => key.split(",").map(Number));
   }
 
-  maybeFinalize(now) {
-    if (this.result) return;
-    const timedOut = now >= this.deadline;
-    if (timedOut || (this.humanValid && this.aiValid)) this.finalize(now);
+  inBounds(row, col) {
+    return row >= 0 && row < this.puzzle.n && col >= 0 && col < this.puzzle.n;
   }
 
   finalizeFailure() {
     if (this.result) return;
     const feedback = `Game over: ${MAX_MISTAKES} invalid queen placements. Restart to try this game again.`;
     this.humanFeedback = feedback;
-    this.phase = "ROUND_FINALIZED";
-    this.result = {
-      outcome: "human_failed",
-      humanValid: false,
-      aiValid: this.aiValid,
-      humanTime: null,
-      aiTime: this.aiTime,
-      solverResult: this.solverResult,
-      notes: [feedback],
-      mistakes: this.mistakes,
-    };
+    this.finalize("human_failed", performance.now(), [feedback]);
   }
 
-  finalize(now) {
+  finalize(outcome, now, notes = []) {
     if (this.result) return;
     this.phase = "ROUND_FINALIZED";
-    const humanTime = this.humanValid ? this.humanTime : null;
-    const aiTime = this.aiValid ? this.aiTime : null;
-    const outcome = GameRound.determineWinner(humanTime, aiTime, this.tolerance);
-    const notes = [];
-    if (humanTime !== null && aiTime !== null && Math.abs(humanTime - aiTime) <= this.tolerance) {
-      notes.push(`Times were within the ${this.tolerance.toFixed(3)}s draw tolerance.`);
-    }
+    this.currentTurn = null;
     this.result = {
       outcome,
       humanValid: this.humanValid,
       aiValid: this.aiValid,
-      humanTime,
-      aiTime,
+      humanTime: this.humanTime,
+      aiTime: this.aiTime,
       solverResult: this.solverResult,
       notes,
       mistakes: this.mistakes,
       finalizedAt: now,
     };
-  }
-
-  static determineWinner(humanTime, aiTime, tolerance) {
-    if (humanTime === null && aiTime === null) return "draw";
-    if (humanTime === null) return "ai_win";
-    if (aiTime === null) return "human_win";
-    if (Math.abs(humanTime - aiTime) <= tolerance) return "draw";
-    return humanTime < aiTime ? "human_win" : "ai_win";
   }
 }
 
@@ -208,10 +279,23 @@ export class ProgressStore {
       if (saved) {
         const payload = JSON.parse(saved);
         if (Array.isArray(payload.completed)) {
+          const previousVersion = Number(payload.version) || 1;
           for (const item of payload.completed) {
             if (Array.isArray(item) && item.length === 2 && Number.isInteger(item[0]) && Number.isInteger(item[1])) {
-              this.completed.add(`${item[0]},${item[1]}`);
+              const [oldLevel, game] = item;
+              const level = previousVersion < PROGRESS_VERSION
+                ? ({ 1: 1, 3: 2, 4: 3 })[oldLevel]
+                : oldLevel;
+              if (
+                Number.isInteger(level)
+                && level >= 1 && level <= LEVEL_COUNT
+                && game >= 1 && game <= GAMES_PER_LEVEL
+              ) this.completed.add(`${level},${game}`);
             }
+          }
+          if (previousVersion < PROGRESS_VERSION) {
+            const completed = [...this.completed].map((entry) => entry.split(",").map(Number));
+            this.storage?.setItem(PROGRESS_STORAGE_KEY, JSON.stringify({ version: PROGRESS_VERSION, completed }));
           }
         }
       }
@@ -225,19 +309,24 @@ export class ProgressStore {
   }
 
   completedCount(level) {
-    return [1, 2, 3].filter((game) => this.isCompleted(level, game)).length;
+    return Array.from({ length: GAMES_PER_LEVEL }, (_, index) => index + 1)
+      .filter((game) => this.isCompleted(level, game)).length;
   }
 
   levelCompleted(level) {
-    return this.completedCount(level) === 3;
+    return this.completedCount(level) === GAMES_PER_LEVEL;
   }
 
   isLevelUnlocked(level) {
-    return level <= 1 || this.levelCompleted(level - 1);
+    if (!Number.isInteger(level) || level < 1 || level > LEVEL_COUNT) return false;
+    return level === 1 || this.levelCompleted(level - 1);
   }
 
-  isGameUnlocked(level, _game) {
-    return this.isLevelUnlocked(level);
+  isGameUnlocked(level, game) {
+    return Number.isInteger(game)
+      && game >= 1
+      && game <= GAMES_PER_LEVEL
+      && this.isLevelUnlocked(level);
   }
 
   markCompleted(level, game) {
@@ -247,12 +336,12 @@ export class ProgressStore {
     const completed = [...this.completed]
       .map((entry) => entry.split(",").map(Number))
       .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    this.storage?.setItem("kingdom-wars-progress", JSON.stringify({ completed }));
+    this.storage?.setItem(PROGRESS_STORAGE_KEY, JSON.stringify({ version: PROGRESS_VERSION, completed }));
     return true;
   }
 
   reset() {
     this.completed.clear();
-    this.storage?.setItem("kingdom-wars-progress", JSON.stringify({ completed: [] }));
+    this.storage?.setItem(PROGRESS_STORAGE_KEY, JSON.stringify({ version: PROGRESS_VERSION, completed: [] }));
   }
 }

@@ -19,9 +19,9 @@ class LevelSelectionScreen:
         self.back.set_rect(pygame.Rect(40, 28, 180, 46))
         self.cards.clear()
         margin_x = 48
-        card_w = (w - margin_x * 2 - 36) // 4
+        card_w = (w - margin_x * 2 - 24) // 3
         card_h = h - 180
-        for i, level in enumerate(range(1, 5)):
+        for i, level in enumerate(range(1, 4)):
             rect = pygame.Rect(margin_x + i * (card_w + 12), 120, card_w, card_h)
             unlocked = self.app.controller.progress.is_level_unlocked(level)
             self.cards.append((level, i, rect, unlocked))

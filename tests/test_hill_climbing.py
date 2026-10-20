@@ -6,7 +6,7 @@ from src.models.solver_result import TerminationReason
 
 
 def test_hill_climbing_metrics_and_validation():
-    puzzle = PuzzleRepository().get(4, 1)
+    puzzle = PuzzleRepository().get(3, 1)
     solver = HillClimbingSolver()
     result = solver.solve(
         puzzle,
@@ -33,7 +33,7 @@ def test_hill_climbing_metrics_and_validation():
 
 
 def test_hill_climbing_is_seed_deterministic_on_failure_budget():
-    puzzle = PuzzleRepository().get(4, 1)
+    puzzle = PuzzleRepository().get(3, 1)
     cfg = SolverConfig(time_limit_seconds=1, max_restarts=3, max_iterations=40, random_seed=99)
     a = HillClimbingSolver().solve(puzzle, cfg)
     b = HillClimbingSolver().solve(puzzle, cfg)

@@ -1,14 +1,14 @@
 # Kingdom Wars: The AI Queen Race
 
-Kingdom Wars is a browser-native N-Queens strategy game with connected colored-kingdom constraints and a hidden human-versus-AI race. The playable website in [`web/`](./web/) uses only HTML, CSS, and vanilla JavaScript; all four AI solvers run in a Web Worker. It is a static site and needs no Python, Pygame, Pygbag, WebAssembly, backend, or application runtime.
+Kingdom Wars is a browser-native N-Queens strategy game with connected colored-kingdom constraints and an alternating human-versus-AI race. The playable website in [`web/`](./web/) uses only HTML, CSS, and vanilla JavaScript; its three active AI solvers run in a Web Worker. It is a static site and needs no Python, Pygame, Pygbag, WebAssembly, backend, or application runtime.
 
 The original Python + Pygame desktop edition remains in `src/` as a tested reference implementation. Its puzzle data, game rules, solver results, and progression behavior are the source used to validate the browser migration.
 
 ## Objectives
 
 - Model a constraint-satisfaction puzzle that is stricter than classic N-Queens.
-- Implement four search algorithms behind one shared validator.
-- Run a fair hidden race: the AI does not see human placements, and live AI progress is not shown.
+- Implement three search algorithms behind one shared validator.
+- Run a turn-based race on independent human and AI boards.
 - Keep browser interaction responsive by solving in a Web Worker.
 - Produce a project a CSE student can explain in a viva: state, constraints, heuristics, complexity, and honest failure cases.
 
@@ -23,23 +23,25 @@ A valid solution on an N×N board must satisfy **all** of the following:
 5. Exactly N queens.
 6. All of the above at the same time.
 
-Kingdoms are N connected 4-directional regions. Single-click a cell to toggle an independent X mark; double-click to place or remove a queen. Right-click also toggles an X mark. X marks do not affect queen validation or mistakes. The visible mistake counter increases once for each distinct cell where an invalid queen placement is attempted. Invalid cells are highlighted red. At three mistakes the round ends in failure, and that game is not marked complete. Restarting resets the counter; leaving or restarting a round does not count as completing that game.
+Kingdoms are N connected 4-directional regions. Single-click or right-click a cell to toggle an X mark; double-click to place or remove a queen. Each X or valid Queen action consumes the current player's turn. X marks are visual annotations: they do not block later Queens, affect Queen validation, or count as mistakes. AI X marks identify cells ruled out by its current Queens, but are separate AI turns as requested. The visible mistake counter increases once for each distinct cell where an invalid Queen placement is attempted. Invalid cells are highlighted red. At three mistakes the round ends in failure, and that game is not marked complete. Restarting resets the counter; leaving or restarting a round does not count as completing that game.
 
-Race rules:
+Turn-based race rules:
 
-- Both competitors start from the same round-start event.
-- Timing uses a monotonic clock (`time.perf_counter()` in Python and `performance.now()` in the browser), not the wall clock.
-- Default round limit: **120 seconds** (`SolverConfig.round_time_limit_seconds`).
-- The race does not end when only one side solves.
-- If both solve, timestamps are compared. If they differ by at most **0.05s**, the result is a draw.
-- If neither solves, the result is a draw.
+- Human and AI have independent boards. The human acts first; only the active player can place Queens or X marks.
+- The first player to complete a valid board wins. An invalid human Queen attempt counts as a mistake and does not pass the turn.
+- Every AI action at all three levels has the same **700 ms** reveal delay. The delay begins when the AI turn starts. If search is still running after that delay, the move waits for the worker result.
+- Default round limit: **120 seconds**. If neither side solves before timeout, the result is a draw.
+- The AI intentionally spends turns placing visible X eliminations. Because X marks do not change legality, this gives the AI extra moves and disadvantages it against a perfect human solution; this was retained by request.
 
 ## Features
 
-- Four levels × three games (12 verified puzzles).
-- Hidden human-vs-AI race with independent boards.
+- Three difficulty tiers × three games (9 verified puzzles): Easy (three 4×4 boards), Hard (two 5×5 and one 6×6), Expert (one 5×5 and two 6×6).
+- Turn-based AI opponent; each level retains its genuine assigned algorithm.
 - Level unlock progression, persisted in browser local storage in the website.
-- Algorithm comparison on the same verified puzzle.
+- Algorithm comparison on the same verified puzzle, plus an AI Algorithm Visualization Lab.
+- Animated solver traces show real Queen candidates, conflicts, pruning, backtracking, solutions, and the corresponding search tree. Play, pause, reset, step, and playback speed controls are available.
+- Lab statistics use solver execution metrics; visual trace retention is capped at 6,000 events and the rendered tree at 350 nodes to bound memory and rendering work. Search runs in a Web Worker.
+- A generated gallery runs the configured solver on the shipped puzzles and displays only solutions that pass the shared validator.
 - Instructions and About screens.
 - Shared `ConstraintChecker` used by humans and every solver.
 - pytest suite for constraints, solvers, race lifecycle, progression, and UI smoke tests.
@@ -91,7 +93,21 @@ Alternative:
 
 Open [`web/index.html`](./web/index.html) through any static file host, or use the deployed GitHub Pages site. The page, stylesheet, puzzle data, game rules, and algorithms are all plain files; the browser runs the AI in `web/js/solver-worker.js`. There is no compile/build step. A static preview extension can serve `web/` locally; this is only for previewing and is not part of the deployed game's runtime.
 
-The browser version preserves the source's 12 exact puzzle layouts and their kingdom colors. Its backtracking, MRV + forward checking, A*, and seeded Hill Climbing implementations return the same solutions and search metrics as the Python algorithms on the shipped puzzles. Queen placements are checked by the same row, column, diagonal, and kingdom constraints; X marks are independent; mistake counts, the three-mistake failure, race clock, tie tolerance, hidden AI, result reveal, comparison screen, and unlock progression are retained. Progress is stored under `kingdom-wars-progress` in local storage.
+The browser version retains nine puzzle layouts and kingdom colors: all three easy boards, all three A* boards, and all three Hill Climbing boards. The removed MRV tier and its three boards are no longer playable or included in the lab, comparison, or gallery. The Python reference specs and seed mapping use the same nine remaining layouts. Basic Backtracking, A*, and seeded Hill Climbing each compute a complete plan in a Web Worker. The AI reveals one legal Queen or X action per turn, checks each Queen against its current board, and can rerun its assigned solver with already-placed Queens fixed if its plan no longer extends the board. Queen placements use the same row, column, diagonal, and kingdom constraints. Older saved progress is migrated: completions from the removed tier are discarded, while the A* and Hill Climbing completions move to their new tier numbers.
+
+The **AI Algorithm Visualization Lab** can run Basic Backtracking, A*, or Hill Climbing on any shipped puzzle. It captures bounded events from the actual solver execution and synchronizes the board animation with a search-tree canvas; it does not substitute sample moves. Statistics include solver-specific explored nodes, conflicts, backtracks, pruned candidates/branches, and measured execution time. Use Play, Pause, Reset, Next Step, and the speed selector to inspect the captured trace. Trace storage is capped at 6,000 events and the tree canvas at 350 nodes; the solver still completes and reports full-run summary statistics. The separate comparison screen runs all three active algorithms on the selected puzzle. The solution gallery executes each puzzle's configured solver and retains only solutions accepted by the shared validator; Hill Climbing may retry with different deterministic seeds, and any unsuccessful puzzle is reported rather than fabricated.
+
+### Difficulty validation
+
+The difficulty regression uses **100 deterministic seeds per puzzle (300 games per level, 900 total)**. A seeded row-by-row randomized backtracking policy is used as the same human-policy simulation at every level. It records policy candidate decisions, actual alternating-game wins, AI search success, turns, and native algorithm effort. Each AI search uses its real level solver and the fixed reveal delay; AI computation time is also respected.
+
+| Tier | Human win rate | AI win rate | AI search success | Mean human-policy decisions | Mean human turns used |
+|---|---:|---:|---:|---:|---:|
+| Easy | 37.3% | 62.7% | 100.0% | 20.57 | 5.25 |
+| Hard | 11.7% | 88.3% | 100.0% | 108.69 | 8.33 |
+| Expert | 8.3% | 91.7% | 98.7% | 160.24 | 8.99 |
+
+Under this fixed simulated policy, average decisions increase and human win rate decreases at every remaining tier. This is evidence for these nine puzzles and that policy, not a guarantee about human players generally. The turn-consuming AI X policy and human-first order also affect those match win rates; search-effort metrics are diagnostic only and are not used as the difficulty measure.
 
 Run native browser logic tests with Node.js (built-in test runner; no npm install):
 
@@ -133,7 +149,7 @@ tests/js/           native browser logic tests
 src/
   app.py
   models/          puzzle, board, solver/round results, config
-  algorithms/      backtracking, MRV+FC, A*, hill climbing
+  algorithms/      backtracking, A*, hill climbing
   core/            constraints, puzzles, race, progression
   ui/              Pygame screens and widgets
 tests/
@@ -146,11 +162,7 @@ data/              local progress JSON
 
 Place a queen in row 0…N−1. For each row, try legal columns. Recurse after a valid placement. Undo when a branch fails. Metrics: nodes visited, backtracks, time, termination reason.
 
-### Level 2 — MRV + Forward Checking
-
-Variables are rows. **MRV** picks the unassigned row with the fewest remaining legal columns (not merely the next row). **Forward checking** removes candidates that conflict with the new queen and fails immediately if any domain is empty. Domains are restored on backtrack. Extra metric: candidates eliminated.
-
-### Level 3 — A* Search
+### Level 2 — A* Search
 
 Nodes are **immutable** partial placements (`columns` tuple). Priority queue: `heapq`.
 
@@ -160,7 +172,7 @@ Nodes are **immutable** partial placements (`columns` tuple). Priority queue: `h
 
 This heuristic is admissible if each remaining queen costs at least 1. It is also **weak**: every complete solution has path cost N, so `f(n) = N` for every node. This project does **not** claim that A* is always faster than backtracking or BFS. Duplicate canonical states are skipped. Limits: expanded states, generated states, time, cancellation.
 
-### Level 4 — Hill Climbing
+### Level 3 — Hill Climbing
 
 A candidate is a **permutation** of columns (one queen per row and column). Objective:
 
@@ -172,7 +184,7 @@ Move to a better neighbor (column swaps), allow a few sideways moves on plateaus
 
 Let N be the board size.
 
-- Backtracking / MRV: worst-case exponential in N. MRV + FC often visits fewer nodes but does extra domain work per assignment.
+- Backtracking: worst-case exponential in N.
 - A*: time depends on expanded states; space is O(frontier). The weak heuristic does not shrink the tree to polynomial size.
 - Hill climbing: each iteration evaluates O(N²) swap neighbors. Restarts are bounded. Not complete.
 
@@ -182,16 +194,18 @@ N is 4–6 in this game, which is small enough to search, not a claim of scalabi
 
 - Level 1 starts unlocked.
 - Completing all three **finalized** games in a level unlocks the next.
+- The game has three levels and nine shipped puzzles.
 - Abandoning or restarting does not mark a game complete.
 - A game is stored at most once.
 
 ## Limitations
 
 - Puzzle generation uses seeded construction around a known N-Queens solution. Uniqueness is preferred but not guaranteed for every board.
-- Hill climbing may fail on Master-level games.
+- Hill climbing may fail on Expert-level games.
 - The A* heuristic is pedagogical, not a high-performance admissible design.
 - If `data/progress.json` cannot be written, progress stays in memory for that session.
 - Algorithm comparison metrics are not interchangeable (nodes vs expanded states vs objective evaluations).
+- The former MRV implementation and its unit tests remain as standalone Python reference material only; it is not exported as an active solver or used by gameplay, comparison, visualization, or progression.
 
 ## Future improvements
 

@@ -140,7 +140,7 @@ def test_browser_mode_runs_each_level_solver(tmp_path):
         progress=ProgressManager(tmp_path / "p.json"),
         browser_mode=True,
     )
-    for level in range(1, 5):
+    for level in range(1, 4):
         controller.round.start_round(
             controller.repository.get(level, 1),
             controller.levels.solver_for(level),

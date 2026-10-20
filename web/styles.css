@@ -180,7 +180,7 @@ a:focus-visible {
 
 .level-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -276,9 +276,27 @@ a:focus-visible {
   gap: 22px;
 }
 
-.board-stage {
+.game-boards {
   display: grid;
-  min-height: 550px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.live-board-card {
+  min-width: 0;
+  text-align: center;
+}
+
+.live-board-card h2 {
+  margin: 0 0 8px;
+  color: var(--gold);
+  font-size: 1rem;
+}
+
+.human-board-stage,
+.ai-board-stage {
+  display: grid;
+  min-height: 430px;
   place-items: center;
 }
 
@@ -355,7 +373,7 @@ a:focus-visible {
 }
 
 .race-panel {
-  min-height: 550px;
+  min-height: 430px;
   padding: 20px 22px;
 }
 
@@ -564,6 +582,205 @@ a:focus-visible {
   color: #ffd4d4;
 }
 
+.lab-toolbar,
+.lab-playback,
+.lab-summary,
+.solution-gallery {
+  margin-bottom: 14px;
+  padding: 18px;
+}
+
+.lab-toolbar {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.lab-toolbar label,
+.lab-controls label {
+  display: grid;
+  min-width: 150px;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.lab-toolbar select,
+.lab-controls select {
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: #10182b;
+  color: var(--text);
+  font: inherit;
+}
+
+.lab-toolbar .button {
+  padding: 0 16px;
+}
+
+.lab-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.lab-controls .button {
+  min-width: 98px;
+  padding: 0 14px;
+}
+
+.lab-event,
+.lab-note,
+.lab-metric-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.lab-note,
+.lab-metric-note {
+  padding: 10px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+}
+
+.lab-progress {
+  width: 100%;
+  height: 9px;
+  margin-top: 12px;
+  accent-color: var(--gold);
+}
+
+.lab-visuals {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.lab-card {
+  min-width: 0;
+  padding: 16px;
+}
+
+.lab-card h2,
+.lab-summary h2,
+.gallery-heading h2 {
+  margin: 0 0 12px;
+  color: var(--gold);
+  font-size: 1.05rem;
+}
+
+#lab-board {
+  display: block;
+  width: min(100%, 460px);
+  margin: 0 auto;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+}
+
+.lab-tree-scroll {
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: #101625;
+}
+
+#lab-tree {
+  display: block;
+  width: 100%;
+  min-height: 300px;
+}
+
+.lab-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.lab-stats .panel {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 14px;
+}
+
+.lab-stats span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.lab-stats strong {
+  color: var(--gold-light);
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+
+.lab-summary p,
+.gallery-heading p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.solution-gallery {
+  margin-top: 14px;
+}
+
+.gallery-heading {
+  margin-bottom: 14px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.solution-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: #101625;
+}
+
+.solution-card h3 {
+  min-height: 36px;
+  margin: 0 0 8px;
+  color: var(--gold-light);
+  font-size: 0.85rem;
+}
+
+.solution-card .board-shell {
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 4px;
+}
+
+.solution-card .board {
+  --cell-size: 30px !important;
+}
+
+.solution-card .queen {
+  text-shadow: 1px 1px 1px #141a2a;
+}
+
+.solution-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 @media (max-width: 900px) {
   .level-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -577,13 +794,22 @@ a:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .board-stage {
+  .human-board-stage,
+  .ai-board-stage {
     min-height: 0;
     padding: 20px 0;
   }
 
   .race-panel {
     min-height: auto;
+  }
+
+  .lab-visuals {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lab-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -649,6 +875,10 @@ a:focus-visible {
     gap: 12px;
   }
 
+  .game-boards {
+    grid-template-columns: 1fr;
+  }
+
   .race-panel {
     padding: 16px;
   }
@@ -663,5 +893,32 @@ a:focus-visible {
 
   .compare-puzzles .button {
     flex: 1 1 44%;
+  }
+
+  .lab-toolbar,
+  .lab-playback,
+  .lab-summary,
+  .solution-gallery {
+    padding: 13px;
+  }
+
+  .lab-toolbar label {
+    flex: 1 1 45%;
+  }
+
+  .lab-toolbar > .button {
+    flex: 1 1 100%;
+  }
+
+  .lab-controls .button {
+    flex: 1 1 40%;
+  }
+
+  .lab-controls label {
+    flex: 1 1 100%;
+  }
+
+  .lab-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

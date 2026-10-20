@@ -10,6 +10,8 @@ from .level_manager import LevelManager
 class ProgressManager:
     """Local JSON progress. Completing a finalized round marks a game done once."""
 
+    PROGRESS_VERSION = 2
+
     def __init__(self, path: Path | None = None) -> None:
         root = Path(__file__).resolve().parents[2]
         self.path = path or (root / "data" / "progress.json")
@@ -31,15 +33,43 @@ class ProgressManager:
                 stored = self._browser_storage.getItem("kingdom-wars-progress")
                 if stored:
                     payload = json.loads(str(stored))
-                    self.completed = {tuple(item) for item in payload.get("completed", [])}
+                    self.completed = self._read_completed(payload)
             elif self.path.exists():
                 payload = json.loads(self.path.read_text(encoding="utf-8"))
-                self.completed = {tuple(item) for item in payload.get("completed", [])}
+                self.completed = self._read_completed(payload)
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             self.completed = set()
 
+    def _read_completed(self, payload: dict) -> set[tuple[int, int]]:
+        previous_version = int(payload.get("version", 1))
+        completed = set()
+        for item in payload.get("completed", []):
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                continue
+            old_level, game = item
+            if not isinstance(old_level, int) or not isinstance(game, int):
+                continue
+            level = (
+                {1: 1, 3: 2, 4: 3}.get(old_level)
+                if previous_version < self.PROGRESS_VERSION
+                else old_level
+            )
+            if (
+                level is not None
+                and 1 <= level <= LevelManager.LEVEL_COUNT
+                and 1 <= game <= LevelManager.GAMES_PER_LEVEL
+            ):
+                completed.add((level, game))
+        if previous_version < self.PROGRESS_VERSION:
+            self.completed = completed
+            self._save()
+        return completed
+
     def _save(self) -> None:
-        payload = {"completed": [list(item) for item in sorted(self.completed)]}
+        payload = {
+            "version": self.PROGRESS_VERSION,
+            "completed": [list(item) for item in sorted(self.completed)],
+        }
         if self._browser_storage is not None:
             self._browser_storage.setItem("kingdom-wars-progress", json.dumps(payload))
             return
@@ -66,14 +96,18 @@ class ProgressManager:
         return all(self.is_completed(level, game) for game in range(1, LevelManager.GAMES_PER_LEVEL + 1))
 
     def is_level_unlocked(self, level: int) -> bool:
-        if level <= 1:
+        if not isinstance(level, int) or level < 1 or level > LevelManager.LEVEL_COUNT:
+            return False
+        if level == 1:
             return True
         return self.level_completed(level - 1)
 
     def is_game_unlocked(self, level: int, game: int) -> bool:
-        if not self.is_level_unlocked(level):
-            return False
-        return True
+        return (
+            isinstance(game, int)
+            and 1 <= game <= LevelManager.GAMES_PER_LEVEL
+            and self.is_level_unlocked(level)
+        )
 
     def completed_count(self, level: int) -> int:
         return sum(1 for game in range(1, LevelManager.GAMES_PER_LEVEL + 1) if self.is_completed(level, game))

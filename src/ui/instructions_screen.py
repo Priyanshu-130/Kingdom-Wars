@@ -27,10 +27,6 @@ INSTRUCTIONS = [
      "Queens are placed one row at a time. Each legal column is tried. If a partial "
      "placement cannot be completed, the algorithm undoes it and tries the next option. "
      "This is the reliable baseline solver."),
-    ("MRV + Forward Checking",
-     "Minimum Remaining Values selects the unfilled row with the fewest legal cells, not "
-     "simply the next row. After a placement, Forward Checking removes conflicting "
-     "candidates from other rows and fails early when a domain becomes empty."),
     ("A* Search",
      "Each node is an immutable partial placement. g(n) is the number of queens placed. "
      "h(n) = N − q(n) estimates remaining placements. f(n) = g(n) + h(n) orders the "
@@ -49,8 +45,8 @@ INSTRUCTIONS = [
 ABOUT = [
     ("Kingdom Wars: The AI Queen Race",
      "A CSE project that combines constraint satisfaction with a human-versus-AI race. "
-     "Four textbook algorithms solve the same family of puzzles: backtracking, heuristic "
-     "backtracking, A*, and hill climbing. The emphasis is on correct constraints, honest "
+     "Three search algorithms solve the same family of puzzles: backtracking, A*, and hill "
+     "climbing. The emphasis is on correct constraints, honest "
      "metrics, and a playable Pygame interface rather than on claiming a universal winner."),
     ("Technology",
      "Python, Pygame, pytest, heapq, and a background thread for AI search. No server, "

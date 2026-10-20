@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -13,6 +14,16 @@ from src.core.game_controller import GameController
 def test_three_games_unlock_rules(tmp_path: Path):
     progress = ProgressManager(tmp_path / "progress.json")
     assert LevelManager.GAMES_PER_LEVEL == 3
+    assert LevelManager.LEVEL_COUNT == 3
+    assert len(LevelManager().all_solvers()) == 3
+    assert LevelManager().spec(2, 1).algorithm_key == "astar"
+    assert LevelManager().spec(3, 1).algorithm_key == "hill"
+    try:
+        LevelManager().solver_by_key("heuristic")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("the removed MRV solver must not be selectable")
     assert progress.is_level_unlocked(1)
     assert not progress.is_level_unlocked(2)
     progress.mark_completed(1, 1)
@@ -22,6 +33,37 @@ def test_three_games_unlock_rules(tmp_path: Path):
     progress.mark_completed(1, 3)
     assert progress.is_level_unlocked(2)
     assert not progress.is_level_unlocked(3)
+    assert LevelManager().next_game(3, 3) is None
+    assert not progress.is_level_unlocked(4)
+    progress.mark_completed(2, 1)
+    progress.mark_completed(2, 2)
+    progress.mark_completed(2, 3)
+    assert progress.is_level_unlocked(3)
+    progress.mark_completed(3, 1)
+    progress.mark_completed(3, 2)
+    progress.mark_completed(3, 3)
+    assert not progress.is_level_unlocked(4)
+
+
+def test_legacy_progress_drops_removed_tier_and_remaps_later_tiers(tmp_path: Path):
+    path = tmp_path / "progress.json"
+    path.write_text(json.dumps({
+        "completed": [
+            [1, 1], [1, 2], [1, 3],
+            [2, 1], [2, 2], [2, 3],
+            [3, 1],
+            [4, 1],
+        ],
+    }), encoding="utf-8")
+
+    progress = ProgressManager(path)
+    assert progress.completed_count(1) == 3
+    assert progress.completed_count(2) == 1
+    assert progress.completed_count(3) == 1
+    assert not progress.is_completed(2, 2)
+    assert not progress.is_level_unlocked(3)
+    assert not progress.is_level_unlocked(4)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 2
 
 
 def test_abandon_does_not_advance(tmp_path: Path):

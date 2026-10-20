@@ -29,6 +29,7 @@ const REASON = Object.freeze({
   RESTART_LIMIT: "restart_limit",
   LOCAL_OPTIMUM: "local_optimum",
   INVALID_PUZZLE: "invalid_puzzle",
+  INVALID_FIXED_PLACEMENTS: "invalid_fixed_placements",
 });
 
 function result(name, success, solution, started, reason, metrics = {}, seed = null, foundAt = null) {
@@ -50,24 +51,48 @@ function validDefinitionOrResult(name, puzzle, started) {
   return result(name, false, null, started, REASON.INVALID_PUZZLE, { errors: report.errors });
 }
 
+function fixedAssignment(puzzle, fixedQueens) {
+  const assignment = new Map();
+  for (const placement of fixedQueens) {
+    if (!Array.isArray(placement) || placement.length !== 2) return null;
+    const [row, col] = placement;
+    if (
+      !Number.isInteger(row) || !Number.isInteger(col)
+      || row < 0 || row >= puzzle.n || col < 0 || col >= puzzle.n
+      || assignment.has(row)
+      || !isSafeAssignment(puzzle, assignment, row, col)
+    ) return null;
+    assignment.set(row, col);
+  }
+  return assignment;
+}
+
 function timedOut(started, config) {
   return (performance.now() - started) / 1000 >= config.time_limit_seconds;
 }
 
-export function solveBacktracking(puzzle, config = DEFAULT_CONFIG) {
+export function solveBacktracking(puzzle, config = DEFAULT_CONFIG, fixedQueens = [], trace = null) {
   const started = performance.now();
   const invalid = validDefinitionOrResult("Basic Backtracking", puzzle, started);
   if (invalid) return invalid;
 
   const n = puzzle.n;
   const columns = Array(n).fill(-1);
+  const fixed = fixedAssignment(puzzle, fixedQueens);
+  if (fixed === null) {
+    return result("Basic Backtracking", false, null, started, REASON.INVALID_FIXED_PLACEMENTS);
+  }
+  for (const [row, col] of fixed) columns[row] = col;
   let nodes = 0;
   let backtracks = 0;
+  let backtrackSteps = 0;
+  let conflicts = 0;
+  let traceId = 0;
   let reason = REASON.UNSOLVABLE;
   let found = null;
   let foundAt = null;
 
-  function search(row) {
+  function search(row, parentId = 0) {
     if (timedOut(started, config)) {
       reason = REASON.TIMEOUT;
       return true;
@@ -81,19 +106,49 @@ export function solveBacktracking(puzzle, config = DEFAULT_CONFIG) {
         found = [...columns];
         foundAt = performance.now();
         reason = REASON.SOLVED;
+        trace?.enabled && trace.record({
+          type: "solution",
+          id: ++traceId,
+          parentId,
+          depth: row,
+          placements: [...columns],
+        });
         return true;
       }
       return false;
     }
+    if (columns[row] >= 0) return search(row + 1, parentId);
     for (let col = 0; col < n; col += 1) {
       nodes += 1;
+      const id = trace?.enabled ? ++traceId : 0;
       if (isSafePartial(puzzle, columns, row, col)) {
         columns[row] = col;
-        if (search(row + 1)) return true;
+        trace?.enabled && trace.record({
+          type: "explore",
+          id,
+          parentId,
+          depth: row + 1,
+          row,
+          col,
+          placements: [...columns],
+        });
+        if (search(row + 1, id)) return true;
         columns[row] = -1;
         backtracks += 1;
+        backtrackSteps += 1;
+        trace?.enabled && trace.record({ type: "backtrack", id, parentId, depth: row + 1, row, col, placements: [...columns] });
       } else {
+        conflicts += 1;
         backtracks += 1;
+        trace?.enabled && trace.record({
+          type: "conflict",
+          id,
+          parentId,
+          depth: row + 1,
+          row,
+          col,
+          placements: [...columns],
+        });
       }
     }
     return false;
@@ -106,122 +161,13 @@ export function solveBacktracking(puzzle, config = DEFAULT_CONFIG) {
     found,
     started,
     reason,
-    { nodes_visited: nodes, backtracks },
-    null,
-    foundAt,
-  );
-}
-
-export function solveHeuristic(puzzle, config = DEFAULT_CONFIG) {
-  const started = performance.now();
-  const invalid = validDefinitionOrResult("MRV + Forward Checking", puzzle, started);
-  if (invalid) return invalid;
-
-  const n = puzzle.n;
-  const domains = Array.from({ length: n }, () => Array.from({ length: n }, (_, col) => col));
-  const assignment = new Map();
-  let nodes = 0;
-  let backtracks = 0;
-  let eliminated = 0;
-  let reason = REASON.UNSOLVABLE;
-  let found = null;
-  let foundAt = null;
-
-  function legalValues(row) {
-    return domains[row].filter((col) => isSafeAssignment(puzzle, assignment, row, col));
-  }
-
-  function selectRow() {
-    let selected = null;
-    let fewest = Infinity;
-    for (let row = 0; row < n; row += 1) {
-      if (assignment.has(row)) continue;
-      const count = legalValues(row).length;
-      if (count < fewest) {
-        selected = row;
-        fewest = count;
-      }
-    }
-    return selected;
-  }
-
-  function forwardCheck(row, col) {
-    const snapshot = new Map();
-    const withCurrent = new Map(assignment);
-    withCurrent.set(row, col);
-    for (let other = 0; other < n; other += 1) {
-      if (assignment.has(other) || other === row) continue;
-      const remaining = domains[other].filter((candidate) =>
-        isSafeAssignment(puzzle, withCurrent, other, candidate),
-      );
-      if (remaining.length !== domains[other].length) {
-        snapshot.set(other, domains[other]);
-        eliminated += domains[other].length - remaining.length;
-        domains[other] = remaining;
-      }
-      if (domains[other].length === 0) {
-        restore(snapshot);
-        return null;
-      }
-    }
-    return snapshot;
-  }
-
-  function restore(snapshot) {
-    for (const [row, values] of snapshot) domains[row] = values;
-  }
-
-  function search() {
-    if (timedOut(started, config)) {
-      reason = REASON.TIMEOUT;
-      return true;
-    }
-    if (nodes >= config.max_nodes) {
-      reason = REASON.NODE_LIMIT;
-      return true;
-    }
-    if (assignment.size === n) {
-      const columns = Array.from({ length: n }, (_, row) => assignment.get(row));
-      if (validateRowColumns(puzzle, columns).valid) {
-        found = columns;
-        foundAt = performance.now();
-        reason = REASON.SOLVED;
-        return true;
-      }
-      return false;
-    }
-    const row = selectRow();
-    if (row === null) return false;
-    const values = legalValues(row).sort((a, b) => a - b);
-    if (values.length === 0) {
-      backtracks += 1;
-      return false;
-    }
-    for (const col of values) {
-      nodes += 1;
-      assignment.set(row, col);
-      const snapshot = forwardCheck(row, col);
-      if (snapshot === null) {
-        backtracks += 1;
-        assignment.delete(row);
-        continue;
-      }
-      if (search()) return true;
-      restore(snapshot);
-      assignment.delete(row);
-      backtracks += 1;
-    }
-    return false;
-  }
-
-  search();
-  return result(
-    "MRV + Forward Checking",
-    found !== null,
-    found,
-    started,
-    reason,
-    { nodes_visited: nodes, backtracks, candidates_eliminated: eliminated },
+    {
+      nodes_visited: nodes,
+      backtracks,
+      backtrack_steps: backtrackSteps,
+      conflicts,
+      pruned_branches: conflicts,
+    },
     null,
     foundAt,
   );
@@ -275,20 +221,30 @@ function compareQueueItems(a, b) {
   return a.f - b.f || a.g - b.g || a.id - b.id;
 }
 
-export function solveAStar(puzzle, config = DEFAULT_CONFIG) {
+export function solveAStar(puzzle, config = DEFAULT_CONFIG, fixedQueens = [], trace = null) {
   const started = performance.now();
   const invalid = validDefinitionOrResult("A* Search", puzzle, started);
   if (invalid) return invalid;
 
   const n = puzzle.n;
-  const startNode = { columns: Array(n).fill(-1), g: 0 };
+  const fixed = fixedAssignment(puzzle, fixedQueens);
+  if (fixed === null) {
+    return result("A* Search", false, null, started, REASON.INVALID_FIXED_PLACEMENTS);
+  }
+  const initialColumns = Array(n).fill(-1);
+  for (const [row, col] of fixed) initialColumns[row] = col;
+  const startNode = { columns: initialColumns, g: fixed.size, traceId: 0 };
   const frontier = new MinHeap(compareQueueItems);
   frontier.push({ f: n, g: 0, id: 0, node: startNode });
+  trace?.enabled && trace.record({ type: "explore", id: 0, parentId: null, depth: fixed.size, placements: [...initialColumns] });
   const explored = new Set();
   let counter = 0;
   let expanded = 0;
   let generated = 1;
   let duplicates = 0;
+  let conflicts = 0;
+  let prunedBranches = 0;
+  let traceId = 0;
   let maxFrontier = 1;
   let reason = REASON.UNSOLVABLE;
   let found = null;
@@ -316,6 +272,13 @@ export function solveAStar(puzzle, config = DEFAULT_CONFIG) {
     }
     explored.add(key);
     expanded += 1;
+    trace?.enabled && trace.record({
+      type: "expand",
+      id: node.traceId,
+      parentId: null,
+      depth: node.g,
+      placements: [...node.columns],
+    });
 
     if (node.g === n) {
       if (validateRowColumns(puzzle, node.columns).valid) {
@@ -323,6 +286,13 @@ export function solveAStar(puzzle, config = DEFAULT_CONFIG) {
         foundAt = performance.now();
         pathCost = node.g;
         reason = REASON.SOLVED;
+        trace?.enabled && trace.record({
+          type: "solution",
+          id: node.traceId,
+          parentId: null,
+          depth: node.g,
+          placements: [...node.columns],
+        });
         break;
       }
       continue;
@@ -331,16 +301,54 @@ export function solveAStar(puzzle, config = DEFAULT_CONFIG) {
     if (nextRow < 0) continue;
     for (let col = 0; col < n; col += 1) {
       generated += 1;
-      if (!isSafePartial(puzzle, node.columns, nextRow, col)) continue;
+      const id = trace?.enabled ? ++traceId : 0;
+      if (!isSafePartial(puzzle, node.columns, nextRow, col)) {
+        conflicts += 1;
+        prunedBranches += 1;
+        trace?.enabled && trace.record({
+          type: "conflict",
+          id,
+          parentId: node.traceId,
+          depth: node.g + 1,
+          row: nextRow,
+          col,
+          placements: [...node.columns],
+        });
+        continue;
+      }
       const childColumns = [...node.columns];
       childColumns[nextRow] = col;
       if (explored.has(childColumns.join(","))) {
         duplicates += 1;
+        prunedBranches += 1;
+        trace?.enabled && trace.record({
+          type: "prune",
+          id,
+          parentId: node.traceId,
+          depth: node.g + 1,
+          row: nextRow,
+          col,
+          placements: childColumns,
+        });
         continue;
       }
       const g = node.g + 1;
       counter += 1;
-      frontier.push({ f: g + (n - g), g, id: counter, node: { columns: childColumns, g } });
+      trace?.enabled && trace.record({
+        type: "explore",
+        id,
+        parentId: node.traceId,
+        depth: g,
+        row: nextRow,
+        col,
+        placements: childColumns,
+      });
+      frontier.push({
+        f: g + (n - g),
+        g,
+        id: counter,
+        node: { columns: childColumns, g, traceId: id },
+      });
     }
     maxFrontier = Math.max(maxFrontier, frontier.length);
   }
@@ -357,6 +365,8 @@ export function solveAStar(puzzle, config = DEFAULT_CONFIG) {
       duplicates_skipped: duplicates,
       max_frontier_size: maxFrontier,
       explored_states: explored.size,
+      conflicts,
+      pruned_branches: prunedBranches,
       path_cost: pathCost,
       heuristic: "h(n) = N - q(n), g(n) = q(n), f(n) = g(n) + h(n)",
     },
@@ -471,10 +481,12 @@ function conflictScore(puzzle, permutation) {
   return score;
 }
 
-function neighbors(permutation) {
+function neighbors(permutation, fixedRows = new Set()) {
   const all = [];
   for (let i = 0; i < permutation.length; i += 1) {
+    if (fixedRows.has(i)) continue;
     for (let j = i + 1; j < permutation.length; j += 1) {
+      if (fixedRows.has(j)) continue;
       const next = [...permutation];
       [next[i], next[j]] = [next[j], next[i]];
       all.push(next);
@@ -483,16 +495,24 @@ function neighbors(permutation) {
   return all;
 }
 
-export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG) {
+export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG, fixedQueens = [], trace = null) {
   const started = performance.now();
   const invalid = validDefinitionOrResult("Hill Climbing", puzzle, started);
   if (invalid) return invalid;
 
   const rng = new PythonRandom(config.random_seed);
   const n = puzzle.n;
+  const fixed = fixedAssignment(puzzle, fixedQueens);
+  if (fixed === null) {
+    return result("Hill Climbing", false, null, started, REASON.INVALID_FIXED_PLACEMENTS);
+  }
+  const fixedRows = new Set(fixed.keys());
   let iterations = 0;
   let restarts = 0;
   let evaluations = 0;
+  let conflicts = 0;
+  let prunedBranches = 0;
+  let traceId = 0;
   let reason = REASON.RESTART_LIMIT;
   let found = null;
   let foundAt = null;
@@ -502,7 +522,9 @@ export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG) {
   let bestEverScore = 10 ** 9;
   const evaluate = (permutation) => {
     evaluations += 1;
-    return conflictScore(puzzle, permutation);
+    const score = conflictScore(puzzle, permutation);
+    conflicts += score;
+    return score;
   };
 
   while (restarts < config.max_restarts) {
@@ -510,8 +532,47 @@ export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG) {
       reason = REASON.TIMEOUT;
       break;
     }
-    let current = rng.sampleRange(n);
+    let current;
+    let currentTraceId;
+    if (fixed.size === 0) {
+      current = rng.sampleRange(n);
+    } else {
+      current = Array(n).fill(-1);
+      const usedColumns = new Set();
+      for (const [row, col] of fixed) {
+        current[row] = col;
+        usedColumns.add(col);
+      }
+      const rows = Array.from({ length: n }, (_, row) => row).filter((row) => !fixedRows.has(row));
+      const columns = Array.from({ length: n }, (_, col) => col).filter((col) => !usedColumns.has(col));
+      const shuffled = rng.sampleRange(columns.length).map((index) => columns[index]);
+      rows.forEach((row, index) => { current[row] = shuffled[index]; });
+    }
+    currentTraceId = trace?.enabled ? ++traceId : 0;
     let currentScore = evaluate(current);
+    trace?.enabled && trace.record({
+      type: "restart",
+      id: currentTraceId,
+      parentId: null,
+      depth: restarts,
+      placements: [...current],
+      score: currentScore,
+    });
+    if (fixed.size === n && currentScore === 0 && validateRowColumns(puzzle, current).valid) {
+      found = current;
+      foundAt = performance.now();
+      reason = REASON.SOLVED;
+      finalScore = 0;
+      trace?.enabled && trace.record({
+        type: "solution",
+        id: currentTraceId,
+        parentId: null,
+        depth: n,
+        placements: [...current],
+        score: 0,
+      });
+      break;
+    }
     if (initialScore === null) initialScore = currentScore;
     if (currentScore < bestEverScore) {
       bestEverScore = currentScore;
@@ -530,16 +591,31 @@ export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG) {
       }
       iterations += 1;
       let bestNeighbor = null;
+      let bestNeighborTraceId = null;
       let bestScore = currentScore;
       const equalNeighbors = [];
-      for (const neighbor of neighbors(current)) {
+      const equalNeighborTraceIds = [];
+      let neighborCount = 0;
+      for (const neighbor of neighbors(current, fixedRows)) {
         const score = evaluate(neighbor);
+        neighborCount += 1;
+        const id = trace?.enabled ? ++traceId : 0;
+        trace?.enabled && trace.record({
+          type: score > 0 ? "conflict" : "candidate",
+          id,
+          parentId: currentTraceId,
+          depth: iterations,
+          placements: [...neighbor],
+          score,
+        });
         if (score < bestScore) {
           bestScore = score;
           bestNeighbor = neighbor;
+          bestNeighborTraceId = id;
           equalNeighbors.length = 0;
         } else if (score === currentScore) {
           equalNeighbors.push(neighbor);
+          if (trace?.enabled) equalNeighborTraceIds.push(id);
         }
         if (score < bestEverScore) {
           bestEverScore = score;
@@ -547,8 +623,10 @@ export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG) {
         }
       }
       if (bestNeighbor !== null && bestScore < currentScore) {
+        prunedBranches += Math.max(0, neighborCount - 1);
         current = bestNeighbor;
         currentScore = bestScore;
+        currentTraceId = bestNeighborTraceId;
         sideways = 0;
         if (currentScore === 0 && validateRowColumns(puzzle, current).valid) {
           found = current;
@@ -556,17 +634,37 @@ export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG) {
           reason = REASON.SOLVED;
           finalScore = 0;
           improved = false;
+          trace?.enabled && trace.record({
+            type: "solution",
+            id: currentTraceId,
+            parentId: null,
+            depth: n,
+            placements: [...current],
+            score: 0,
+          });
           break;
         }
         continue;
       }
       if (equalNeighbors.length > 0 && sideways < config.sideways_moves) {
-        current = rng.choice(equalNeighbors);
+        const selectedIndex = rng.randbelow(equalNeighbors.length);
+        prunedBranches += Math.max(0, neighborCount - 1);
+        current = equalNeighbors[selectedIndex];
+        currentTraceId = trace?.enabled ? equalNeighborTraceIds[selectedIndex] : 0;
         sideways += 1;
         continue;
       }
+      prunedBranches += neighborCount;
       improved = false;
       reason = REASON.LOCAL_OPTIMUM;
+      trace?.enabled && trace.record({
+        type: "local-optimum",
+        id: currentTraceId,
+        parentId: null,
+        depth: iterations,
+        placements: [...current],
+        score: currentScore,
+      });
     }
     finalScore = currentScore;
     if (found !== null) break;
@@ -583,6 +681,9 @@ export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG) {
       iterations,
       restarts,
       objective_evaluations: evaluations,
+      conflicts,
+      backtracks: 0,
+      pruned_branches: prunedBranches,
       initial_conflict_score: initialScore,
       final_conflict_score: finalScore,
       objective: "diagonal_pairs + kingdom_pairs over a column permutation",
@@ -594,15 +695,14 @@ export function solveHillClimbing(puzzle, config = DEFAULT_CONFIG) {
 
 export const SOLVERS = Object.freeze({
   backtracking: solveBacktracking,
-  heuristic: solveHeuristic,
   astar: solveAStar,
   hill: solveHillClimbing,
 });
 
-export function solveByKey(key, puzzle, config = DEFAULT_CONFIG) {
+export function solveByKey(key, puzzle, config = DEFAULT_CONFIG, fixedQueens = [], trace = null) {
   const solver = SOLVERS[key];
   if (!solver) throw new RangeError(`Unknown solver: ${key}`);
-  return solver(puzzle, config);
+  return solver(puzzle, config, fixedQueens, trace);
 }
 
 export { REASON as TERMINATION_REASON };
