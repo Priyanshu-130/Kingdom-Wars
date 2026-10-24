@@ -416,10 +416,8 @@ class KingdomWarsBrowserApp {
       <p class="brand-tagline">N-Queens&nbsp; · &nbsp;Colored Kingdoms&nbsp; · &nbsp;Human vs Algorithm</p>
       <nav class="menu-panel" aria-label="Main menu">
         <button class="button button-primary menu-button" data-action="start">Start Game</button>
-        <button class="button menu-button" data-action="compare">Algorithm Comparison</button>
-        <button class="button menu-button" data-action="open-lab">AI Algorithm Visualization Lab</button>
+        <button class="button menu-button" data-action="open-lab">Algorithm Visualisation</button>
         <button class="button menu-button" data-action="instructions">Instructions</button>
-        <button class="button menu-button" data-action="about">About</button>
         <button class="button menu-button" data-action="exit">Exit</button>
       </nav>
     </section>`;
@@ -488,24 +486,7 @@ class KingdomWarsBrowserApp {
           <p class="play-hint">Single-click or right-click to mark X; double-click to place or remove a Queen. Every X or legal Queen action ends your turn. Invalid Queen placements count as mistakes and do not end your turn.</p>
         </aside>
       </div>
-      <section class="panel live-search">
-        <div class="live-search-heading">
-          <div><h2>AI search replay</h2><p>Real solver events, replayed independently of solver execution and the fixed AI reveal delay.</p></div>
-          <label>Step interval
-            <select data-search-speed aria-label="AI search visualization speed">
-              ${[300, 400, 500].map((speed) => `<option value="${speed}"${this.searchState.speedMs === speed ? " selected" : ""}>${speed} ms</option>`).join("")}
-            </select>
-          </label>
-        </div>
-        <p class="live-search-status" id="search-status">Waiting for the solver to start.</p>
-        <p class="live-search-time" id="search-time">Solver execution: — · Visualization: 0.0s</p>
-        <div class="live-search-progress"><progress id="search-progress" max="1" value="0"></progress><span id="search-event">0 events</span></div>
-        <p class="search-legend">Playback retains up to 6,000 real events; the live tree displays up to 2,000 nodes.</p>
-        <div class="live-search-visuals">
-          <article><h3>Current search board</h3><canvas id="search-board" aria-label="Animated AI search board"></canvas><p class="search-legend">Red: rejected/conflicting · Purple: backtracked · Gold: current placement</p></article>
-          <article class="search-tree-card"><h3>Search tree</h3><div class="search-tree-scroll"><canvas id="search-tree" aria-label="Animated search tree"></canvas></div></article>
-        </div>
-      </section>
+
     </section>`;
   }
 
@@ -578,7 +559,7 @@ class KingdomWarsBrowserApp {
         <button class="button" data-action="menu">Main Menu</button>
         <h1>Algorithm Comparison</h1>
         <div class="header-actions">
-          <button class="button" data-action="open-lab">Visualization Lab</button>
+          <button class="button" data-action="open-lab">Algorithm Visualisation</button>
           <button class="button" data-action="toggle-repeats">Repeats: ${this.comparisonRepeats}</button>
           <button class="button button-primary" data-action="run-comparison"${this.comparisonRunning ? " disabled" : ""}>${this.comparisonRunning ? "Running…" : "Run comparison"}</button>
         </div>
@@ -634,13 +615,12 @@ class KingdomWarsBrowserApp {
     return `<section class="screen lab-screen">
       <header class="screen-header">
         <button class="button" data-action="menu">Main Menu</button>
-        <div class="screen-heading"><h1>AI Algorithm Visualization Lab</h1><p>Inspect real solver decisions; the game’s AI timing and turn rules are unchanged.</p></div>
+        <div class="screen-heading"><h1>Algorithm Visualisation</h1><p>Inspect real solver decisions; the game’s AI timing and turn rules are unchanged.</p></div>
       </header>
       <section class="panel lab-toolbar">
         <label>Algorithm<select data-lab-control="algorithm">${algorithmOptions}</select></label>
         <label>Puzzle<select data-lab-control="puzzle">${puzzleOptions}</select></label>
         <button class="button button-primary" data-action="lab-run"${lab.busy ? " disabled" : ""}>${lab.busy ? "Searching…" : "Run Search"}</button>
-        <button class="button" data-action="compare">Compare Algorithms</button>
         <button class="button" data-action="lab-gallery"${lab.galleryBusy ? " disabled" : ""}>${lab.galleryBusy ? "Building…" : "Generate Solution Gallery"}</button>
       </section>
       <section class="lab-guide-section" aria-label="How the algorithms work">
@@ -1041,6 +1021,7 @@ class KingdomWarsBrowserApp {
   }
 
   startSearchPlayback() {
+    if (!this.root.querySelector("#search-board")) return;
     const state = this.searchState;
     if (state.timer !== null || state.cursor >= state.events.length) {
       this.updateSearchStatus();
