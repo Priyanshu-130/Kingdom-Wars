@@ -685,7 +685,7 @@ a:focus-visible {
 .lab-toolbar,
 .lab-playback,
 .lab-summary,
-.solution-gallery {
+.lab-guide-section {
   margin-bottom: 14px;
   padding: 18px;
 }
@@ -722,73 +722,38 @@ a:focus-visible {
   padding: 0 16px;
 }
 
-.lab-guide-section {
-  margin-bottom: 14px;
-}
-
-.lab-guide-section > h2 {
+.lab-guide-header h2 {
   margin: 0 0 6px;
   color: var(--gold);
   font-size: 1.15rem;
 }
 
-.lab-guide-section > p {
-  margin: 0 0 12px;
+.lab-guide-header .guide-tagline {
+  margin: 0 0 14px;
+  color: var(--text);
+  font-size: 0.94rem;
   line-height: 1.5;
 }
 
-.algorithm-guides {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: start;
-  gap: 12px;
-}
-
-.algorithm-guide {
-  min-width: 0;
-  padding: 14px 16px;
-}
-
-.algorithm-guide[open] {
-  border-color: var(--gold);
-}
-
-.algorithm-guide summary {
-  color: var(--gold);
-  cursor: pointer;
-  font-weight: 750;
-  line-height: 1.5;
-}
-
-.guide-selected {
-  margin-left: 6px;
-  color: var(--ok);
-  font-size: 0.76rem;
+.lab-guide-steps h3 {
+  margin: 0 0 8px;
+  color: var(--gold-light);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.algorithm-guide p,
-.algorithm-guide ol {
-  color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.55;
-}
-
-.algorithm-guide .guide-tagline {
-  color: var(--text);
-  font-weight: 650;
-}
-
-.algorithm-guide ol {
+.lab-guide-steps ol {
+  margin: 0;
   padding-left: 20px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
 }
 
-.algorithm-guide li + li {
+.lab-guide-steps li + li {
   margin-top: 5px;
-}
-
-.algorithm-guide strong {
-  color: var(--text);
 }
 
 .lab-controls {

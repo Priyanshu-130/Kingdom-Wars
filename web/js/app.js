@@ -572,15 +572,7 @@ class KingdomWarsBrowserApp {
 
   renderLab() {
     const lab = this.labState;
-    const algorithmGuides = Object.entries(ALGORITHM_GUIDES).map(([key, guide]) =>
-      `<details class="panel algorithm-guide"${key === lab.algorithmKey ? " open" : ""}>
-        <summary>${escapeHTML(guide.name)}${key === lab.algorithmKey ? ' <span class="guide-selected">Selected</span>' : ""}</summary>
-        <p class="guide-tagline">${escapeHTML(guide.tagline)}</p>
-        <ol>${guide.steps.map((step) => `<li>${escapeHTML(step)}</li>`).join("")}</ol>
-        <p><strong>What to watch:</strong> ${escapeHTML(guide.watch)}</p>
-        <p><strong>Trade-off:</strong> ${escapeHTML(guide.tradeoff)}</p>
-      </details>`,
-    ).join("");
+    const currentGuide = ALGORITHM_GUIDES[lab.algorithmKey] || ALGORITHM_GUIDES.backtracking;
     const algorithms = [...new Map(LEVEL_SPECS.map((spec) => [
       spec.algorithmKey,
       { key: spec.algorithmKey, title: spec.algorithm },
@@ -598,15 +590,6 @@ class KingdomWarsBrowserApp {
       prunedBranches: 0,
       elapsedSeconds: 0,
     };
-    const gallery = lab.gallery.map((entry) => {
-      const puzzle = PUZZLES.find((item) => item.id === entry.puzzleId);
-      const queens = entry.solution.map((col, row) => `${row},${col}`);
-      return `<article class="solution-card">
-        <h3>${escapeHTML(entry.puzzleId)} · ${escapeHTML(entry.algorithm)}</h3>
-        ${renderBoard(puzzle, queens, [], [], { cellSize: 30, disabled: true, label: `${entry.puzzleId} verified solution` })}
-        <p>${entry.solution.map((col) => col + 1).join(", ")} · ${formatTime(entry.elapsedSeconds, 4)}</p>
-      </article>`;
-    }).join("");
     const event = lab.events[Math.max(0, lab.cursor - 1)];
     const eventLabel = event
       ? `${lab.cursor}/${lab.events.length} · ${event.type}${Number.isInteger(event.row) ? ` · row ${event.row + 1}, column ${event.col + 1}` : ""}`
@@ -621,12 +604,18 @@ class KingdomWarsBrowserApp {
         <label>Algorithm<select data-lab-control="algorithm">${algorithmOptions}</select></label>
         <label>Puzzle<select data-lab-control="puzzle">${puzzleOptions}</select></label>
         <button class="button button-primary" data-action="lab-run"${lab.busy ? " disabled" : ""}>${lab.busy ? "Searching…" : "Run Search"}</button>
-        <button class="button" data-action="lab-gallery"${lab.galleryBusy ? " disabled" : ""}>${lab.galleryBusy ? "Building…" : "Generate Solution Gallery"}</button>
       </section>
-      <section class="lab-guide-section" aria-label="How the algorithms work">
-        <h2>How the search algorithms work</h2>
-        <p class="muted">Each level uses its assigned algorithm. Open a card to read its steps; the highlighted method is selected above. These are different real search strategies, not animations of one shared route.</p>
-        <div class="algorithm-guides">${algorithmGuides}</div>
+      <section class="panel lab-guide-section" aria-label="How the algorithm works">
+        <div class="lab-guide-header">
+          <h2>${escapeHTML(currentGuide.name)}</h2>
+          <p class="guide-tagline">${escapeHTML(currentGuide.tagline)}</p>
+        </div>
+        <div class="lab-guide-steps">
+          <h3>How it works</h3>
+          <ol>
+            ${currentGuide.steps.map((step) => `<li>${escapeHTML(step)}</li>`).join("")}
+          </ol>
+        </div>
       </section>
       ${lab.error ? `<p class="error-banner" role="alert">${escapeHTML(lab.error)}</p>` : ""}
       ${lab.traceTruncated ? '<p class="lab-note">The search completed in full. The animation is capped at 6,000 real events and the tree canvas at 350 nodes to keep the browser responsive; summary statistics cover the full run.</p>' : ""}
@@ -657,7 +646,6 @@ class KingdomWarsBrowserApp {
       </section>
       <p class="lab-metric-note">These counters come from the completed solver run. Algorithms count work differently, so raw totals are useful for understanding one run but should not be treated as a direct performance comparison.</p>
       ${lab.result ? `<section class="panel lab-summary"><h2>${escapeHTML(lab.result.algorithmName)} · ${lab.result.success ? "solution found" : escapeHTML(lab.result.terminationReason)}</h2><p>${lab.result.success ? `Valid solution: ${lab.result.solution.map((col) => col + 1).join(", ")}` : "This real search did not find a solution within its configured limits."}</p></section>` : ""}
-      <section class="panel solution-gallery">      <div class="gallery-heading"><h2>Valid solution gallery</h2><p>${lab.gallery.length ? `${lab.gallery.length} solutions produced by the configured solvers.${lab.galleryFailures.length ? ` Search did not find solutions for: ${lab.galleryFailures.join(", ")}.` : ""}` : "Generate solutions with actual solver runs across the shipped puzzles."}</p></div><div class="gallery-grid">${gallery || '<p class="muted">No generated solutions yet.</p>'}</div></section>
     </section>`;
   }
 
