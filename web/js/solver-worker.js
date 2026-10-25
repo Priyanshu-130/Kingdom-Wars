@@ -1,10 +1,17 @@
-import { comparisonPuzzles, LEVEL_SPECS, PUZZLES } from "./puzzles.js?three-solvers-v2";
-import { DEFAULT_CONFIG, SOLVERS, solveByKey } from "./solvers.js?three-solvers-v2";
-import { validateRowColumns } from "./rules.js?three-solvers-v2";
+import { comparisonPuzzles, LEVEL_SPECS, PUZZLES } from "./puzzles.js?four-solvers-v1";
+import { DEFAULT_CONFIG, SOLVERS, solveByKey } from "./solvers.js?four-solvers-v1";
+import { validateRowColumns } from "./rules.js?four-solvers-v1";
 
 const MAX_LAB_TRACE_EVENTS = 6_000;
 const GAME_TRACE_BATCH_SIZE = 32;
 const MAX_GAME_TRACE_EVENTS = 6_000;
+
+const ALGORITHM_NAMES = Object.freeze({
+  backtracking: "Basic Backtracking",
+  astar: "A* Search",
+  greedy: "Greedy Best-First Search",
+  mrv: "MRV + Forward Checking",
+});
 
 function solveOne(message) {
   const { puzzle, solverKey, config, startedAtEpoch, fixedQueens = [], traceSearch = false } = message;
@@ -72,7 +79,7 @@ function solveForLab(message) {
     events: trace.events,
     traceTruncated: trace.truncated,
     statistics: {
-      nodesExplored: metrics.nodes_visited ?? metrics.states_expanded ?? metrics.objective_evaluations ?? 0,
+      nodesExplored: metrics.nodes_visited ?? metrics.states_expanded ?? 0,
       conflicts: metrics.conflicts ?? 0,
       backtracks: metrics.backtrack_steps ?? metrics.backtracks ?? 0,
       prunedBranches: metrics.pruned_branches ?? metrics.candidates_eliminated ?? 0,
@@ -86,27 +93,16 @@ function solveGallery() {
   const failedPuzzles = [];
   for (const puzzle of PUZZLES) {
     const spec = LEVEL_SPECS.find((item) => item.level === puzzle.level && item.game === puzzle.game);
-    const attempts = spec.algorithmKey === "hill" ? 5 : 1;
-    let found = null;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const solved = solveByKey(spec.algorithmKey, puzzle, {
-        ...DEFAULT_CONFIG,
-        random_seed: DEFAULT_CONFIG.random_seed + puzzle.level * 10 + puzzle.game + attempt,
-      });
-      if (solved.success && validateRowColumns(puzzle, solved.solution).valid) {
-        found = solved;
-        break;
-      }
-    }
-    if (!found) {
+    const solved = solveByKey(spec.algorithmKey, puzzle, DEFAULT_CONFIG);
+    if (!solved.success || !validateRowColumns(puzzle, solved.solution).valid) {
       failedPuzzles.push(puzzle.id);
       continue;
     }
     solutions.push({
       puzzleId: puzzle.id,
       algorithm: spec.algorithm,
-      solution: found.solution,
-      elapsedSeconds: found.elapsedSeconds,
+      solution: solved.solution,
+      elapsedSeconds: solved.elapsedSeconds,
     });
   }
   return { solutions, failedPuzzles };
@@ -130,19 +126,19 @@ self.addEventListener("message", (event) => {
     if (message.type === "compare") {
       const rows = Object.entries(SOLVERS).map(([key, solver]) => {
         const spec = LEVEL_SPECS.find((item) => item.algorithmKey === key);
+        const name = spec?.algorithm || ALGORITHM_NAMES[key] || key;
         let successes = 0;
         let lastResult = null;
         for (let repeat = 0; repeat < message.repeats; repeat += 1) {
           const config = {
             ...DEFAULT_CONFIG,
             ...message.config,
-            random_seed: DEFAULT_CONFIG.random_seed + repeat,
           };
           lastResult = solver(message.puzzle, config);
           if (lastResult.success) successes += 1;
         }
         return {
-          algorithm: spec.algorithm,
+          algorithm: name,
           result: lastResult,
           successes,
           repeats: message.repeats,

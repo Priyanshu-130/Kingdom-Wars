@@ -13,7 +13,7 @@ import { cellKey } from "./rules.js";
 
 const appElement = document.getElementById("app");
 const CLICK_DELAY_MS = 300;
-const SOLVER_WORKER_URL = new URL("./solver-worker.js?three-solvers-v2", import.meta.url);
+const SOLVER_WORKER_URL = new URL("./solver-worker.js?four-solvers-v1", import.meta.url);
 
 const ALGORITHM_GUIDES = {
   backtracking: {
@@ -26,31 +26,46 @@ const ALGORITHM_GUIDES = {
       "Finish when every row has a Queen and the complete board passes validation.",
     ],
     watch: "On the board, Queens accumulate down the rows. Red marks are rejected trials; purple marks show a Queen being undone.",
-    tradeoff: "Systematic and complete within its limits, but may explore many branches.",
+    tradeoff: "Systematic and complete within its limits, but may explore many branches in worst-case O(N!).",
   },
   astar: {
     name: "A* Search",
-    tagline: "Keep legal partial boards in a priority queue and expand the most promising state next.",
+    tagline: "Evaluate queued partial boards with f(n) = g(n) + h(n), balancing placed queens and domain tightness.",
     steps: [
-      "Each search-tree node represents a distinct partial Queen placement.",
-      "Expand the queued state with the smallest f = g + h. Here, g is Queens placed and h estimates Queens remaining.",
-      "Generate legal children for the next empty row; reject conflicts and skip states already explored.",
+      "Each priority queue node represents a partial Queen placement.",
+      "Expand the queued state with the smallest f = g + h. Here, g is Queens placed (depth) and h estimates remaining difficulty.",
+      "The heuristic h evaluates unassigned rows and penalizes domain reductions, detecting dead ends where a row has 0 legal options.",
+      "Generate legal child states for the next empty row; prune conflicting or previously explored duplicate states.",
       "Stop when an expanded complete board passes the shared puzzle validator.",
     ],
-    watch: "Blue nodes are generated or expanded states; red nodes violate a rule and amber nodes duplicate an explored state.",
-    tradeoff: "Explores by priority rather than depth-first order. This game’s h = N − g makes f constant at N, so it is a weak guide and is not guaranteed to beat backtracking.",
+    watch: "Blue nodes are generated or expanded states; red nodes violate a rule; amber nodes duplicate an explored state.",
+    tradeoff: "Informed priority-queue exploration. Adding domain penalties prevents f = N degeneracy but makes h an informed CSP heuristic rather than a strictly admissible shortest-path heuristic.",
   },
-  hill: {
-    name: "Hill Climbing",
-    tagline: "Start with a complete arrangement and improve it by swapping Queens between rows.",
+  greedy: {
+    name: "Greedy Best-First Search",
+    tagline: "Aggressively expand the state that appears closest to a goal, evaluating nodes purely by f(n) = h(n).",
     steps: [
-      "Create one Queen per row and column, then score diagonal and same-kingdom conflicts.",
-      "Try neighboring boards made by swapping two Queens; the score is the number of rule conflicts.",
-      "Move to a lower-scoring neighbor. Limited sideways moves can cross a flat plateau.",
-      "If no helpful move remains, restart with a new arrangement, up to the configured limit.",
+      "Each priority queue node represents a partial Queen placement.",
+      "Unlike A*, Greedy Best-First ignores path cost g(n) and prioritizes nodes strictly by smallest h(n).",
+      "States with more Queens placed and more open legal cells in remaining rows receive lower h values.",
+      "If a branch produces a dead end (a row with zero options), its heuristic penalty spikes, redirecting the search.",
+      "Stop when a complete board passes the shared puzzle validator.",
     ],
-    watch: "The board shows whole candidate arrangements. The score beside an event is its conflict count; a zero-score candidate is accepted only after full validation.",
-    tradeoff: "Can improve quickly, but may get stuck at a local optimum or use up its restart/iteration budget without finding a solution.",
+    watch: "Greedy search drives rapidly down promising branches. If trapped, it backtracks via the priority queue.",
+    tradeoff: "Often expands fewer nodes than unguided search, but is incomplete and non-optimal in general; can be misled by greedy choices.",
+  },
+  mrv: {
+    name: "MRV + Forward Checking",
+    tagline: "Select the most constrained variable first (Minimum Remaining Values) and prune domains ahead of time.",
+    steps: [
+      "MRV variable ordering: instead of rigid row 0 to N-1 order, always select the unassigned row with the fewest legal column candidates.",
+      "Try legal column candidates for that row in sorted order.",
+      "Forward Checking: after placing a Queen, immediately prune all conflicting values from the domains of all other unassigned rows.",
+      "If any unassigned row's domain is wiped out (0 candidates), detect the dead end immediately at depth k and backtrack.",
+      "Restore pruned domain snapshots upon backtracking.",
+    ],
+    watch: "Assignments jump between rows based on constrainedness rather than sequential order. Red marks show domain eliminations and backtracks.",
+    tradeoff: "Complete systematic CSP search with forward inference; prunes failures much earlier than simple backtracking.",
   },
 };
 
@@ -61,8 +76,9 @@ const INSTRUCTIONS = [
   ["Equal AI delay", "Every AI action, at every level, waits the same 700 ms before it is revealed. Search runs in a Web Worker. If the solver is still computing after 700 ms, the AI waits until its legal move is ready. The separate live search replay can be slowed to 300, 400, or 500 ms per event; this never changes solver execution time or the fixed reveal delay."],
   ["AI moves and X marks", "Each AI level runs its assigned genuine solver to create a full legal plan, then reveals only one action on each AI turn. The AI revalidates each planned Queen against its own board and recomputes from already-placed Queens if necessary. AI X marks visually show cells ruled out by its Queens; X marks do not block Queen placement or affect mistakes. AI X moves consume turns, as requested."],
   ["Basic Backtracking", "Queens are placed one row at a time. Each legal column is tried. If a partial placement cannot be completed, the algorithm undoes it and tries the next option. This is the reliable baseline solver."],
-  ["A* Search", "Each node is an immutable partial placement. g(n) is the number of queens placed. h(n) = N − q(n) estimates remaining placements. f(n) = g(n) + h(n) orders the priority queue. Because every complete solution has path cost N, this heuristic is admissible but weak: f(n) is N for every node, so A* is not claimed to be faster than backtracking. Duplicate states are skipped. Expansion, time, and cancellation limits apply. A* can use substantial memory because it stores a frontier of partial states."],
-  ["Hill Climbing", "A candidate is a permutation of columns, so rows and columns are already unique. The objective is diagonal_pairs + kingdom_pairs. The search moves to a better neighbor, allows limited sideways moves on plateaus, and uses bounded random restarts. A zero score still has to pass the shared validator. Local search can get stuck and may fail honestly within its budget."],
+  ["A* Search", "Nodes represent partial placements ordered by f(n) = g(n) + h(n). g(n) is placed Queens and h(n) estimates remaining difficulty including unassigned domain reduction. Duplicate states are skipped. Limits apply to expanded states and memory."],
+  ["Greedy Best-First Search", "Evaluates nodes purely by f(n) = h(n), ignoring path cost g(n). It greedily pursues states with fewest remaining variables and fewest constrained domains. Fast in practice, but incomplete and non-optimal in the general case."],
+  ["MRV + Forward Checking", "A CSP solver using Minimum Remaining Values to dynamically pick the variable with fewest legal values, combined with forward checking to prune conflicting domain values from unassigned variables after every placement."],
 ];
 
 const ABOUT = [
@@ -91,25 +107,22 @@ function explainSearchEvent(event, algorithmKey) {
     : "";
   if (event.type === "solution") return "Solution found: this complete arrangement passed the game’s shared rules validator.";
   if (event.type === "conflict") {
-    if (algorithmKey === "hill") {
-      return `This swap-neighbor arrangement has a conflict score of ${event.score}; the score counts diagonal and same-kingdom conflict pairs.`;
-    }
     return `Rejected${position}: placing a Queen here would break a column, diagonal, or kingdom constraint with an existing Queen.`;
   }
-  if (event.type === "backtrack") return `Backtrack${position}: this branch could not be completed, so the solver removes this Queen and tries another column.`;
-  if (event.type === "prune") return `Pruned${position}: this partial arrangement has already been explored, so A* skips the duplicate state.`;
-  if (event.type === "expand") return `A* expands this queued partial board: it removes the state from its frontier and checks whether it can lead to a solution.`;
+  if (event.type === "backtrack") return `Backtrack${position}: this branch could not be completed, so the solver removes this Queen and tries another option.`;
+  if (event.type === "prune") return `Pruned${position}: this partial arrangement has already been explored or eliminated, so the search skips it.`;
+  if (event.type === "expand") return `Expanding partial board from priority queue: state popped to generate and evaluate its candidate extensions.`;
   if (event.type === "explore") {
-    return algorithmKey === "astar"
-      ? `A* creates a legal child state${position} and adds that partial board to its priority queue.`
-      : `Backtracking places a legal Queen${position} and recurses to the next row.`;
-  }
-  if (event.type === "restart") return `Hill Climbing starts a fresh arrangement (restart ${event.depth + 1}) with conflict score ${event.score}.`;
-  if (event.type === "candidate") {
-    return `Hill Climbing evaluates a neighboring arrangement with conflict score ${event.score}; it compares this score with the current board before choosing its next move.`;
-  }
-  if (event.type === "local-optimum") {
-    return `No improving or permitted sideways neighbor remains at score ${event.score}; this attempt is stuck and the solver may restart.`;
+    if (algorithmKey === "astar") {
+      return `A* creates legal child state${position} and queues it with f = g + h.`;
+    }
+    if (algorithmKey === "greedy") {
+      return `Greedy Best-First creates legal child state${position} and queues it evaluated by h.`;
+    }
+    if (algorithmKey === "mrv") {
+      return `MRV assigns Queen${position} and forward checks remaining variable domains.`;
+    }
+    return `Backtracking places a legal Queen${position} and recurses.`;
   }
   return `The solver recorded a ${event.type} event${position}.`;
 }
@@ -573,10 +586,12 @@ class KingdomWarsBrowserApp {
   renderLab() {
     const lab = this.labState;
     const currentGuide = ALGORITHM_GUIDES[lab.algorithmKey] || ALGORITHM_GUIDES.backtracking;
-    const algorithms = [...new Map(LEVEL_SPECS.map((spec) => [
-      spec.algorithmKey,
-      { key: spec.algorithmKey, title: spec.algorithm },
-    ])).values()];
+    const algorithms = [
+      { key: "backtracking", title: "Basic Backtracking" },
+      { key: "astar", title: "A* Search" },
+      { key: "greedy", title: "Greedy Best-First Search" },
+      { key: "mrv", title: "MRV + Forward Checking" },
+    ];
     const algorithmOptions = algorithms.map(({ key, title }) =>
       `<option value="${key}"${lab.algorithmKey === key ? " selected" : ""}>${escapeHTML(title)}</option>`,
     ).join("");
@@ -640,7 +655,7 @@ class KingdomWarsBrowserApp {
       <section class="lab-stats" aria-label="Search statistics">
         <article class="panel"><span>Nodes explored</span><strong>${statistics.nodesExplored}</strong><small>States/candidates examined; exact meaning depends on the algorithm.</small></article>
         <article class="panel"><span>Conflicts</span><strong>${statistics.conflicts}</strong><small>Violations or objective-conflict pairs counted by this solver.</small></article>
-        <article class="panel"><span>Backtracks</span><strong>${statistics.backtracks}</strong><small>Undone choices for backtracking; hill climbing does not backtrack.</small></article>
+        <article class="panel"><span>Backtracks</span><strong>${statistics.backtracks}</strong><small>Undone choices during backtracking or dead-end recovery.</small></article>
         <article class="panel"><span>Pruned branches</span><strong>${statistics.prunedBranches}</strong><small>Branches/candidates skipped by this algorithm’s search rules.</small></article>
         <article class="panel"><span>Execution time</span><strong>${formatTime(statistics.elapsedSeconds, 4)}</strong><small>Measured solver runtime, not the slower animation playback.</small></article>
       </section>

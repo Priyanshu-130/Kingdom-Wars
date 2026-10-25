@@ -29,25 +29,26 @@ INSTRUCTIONS = [
      "This is the reliable baseline solver."),
     ("A* Search",
      "Each node is an immutable partial placement. g(n) is the number of queens placed. "
-     "h(n) = N − q(n) estimates remaining placements. f(n) = g(n) + h(n) orders the "
-     "heapq priority queue. Because every complete solution has path cost N, this heuristic "
-     "is admissible but weak: f(n) is N for every node, so A* is not claimed to be faster "
-     "than backtracking. Duplicate states are skipped. Expansion, time, and cancellation "
-     "limits apply. A* can use substantial memory because it stores a frontier of partial states."),
-    ("Hill Climbing",
-     "A candidate is a permutation of columns, so rows and columns are already unique. "
-     "The objective is diagonal_pairs + kingdom_pairs. The search moves to a better neighbor, "
-     "allows limited sideways moves on plateaus, and uses bounded random restarts. A zero "
-     "score still has to pass the shared validator. Local search can get stuck and may fail "
-     "honestly within its budget."),
+     "h(n) incorporates remaining queens plus unassigned row domain reduction penalties, "
+     "with early dead-end detection. f(n) = g(n) + h(n) orders the priority queue. "
+     "This resolves the f(n)=N degeneracy of uniform heuristics. Duplicate canonical states "
+     "are pruned. Memory and expansion limits apply."),
+    ("Greedy Best-First Search",
+     "Orders the priority queue purely by heuristic value f(n) = h(n), breaking ties by "
+     "search depth. It prioritizes nodes that appear closest to the goal. While highly efficient "
+     "on typical boards, it is not guaranteed to be optimal or complete in general search spaces."),
+    ("MRV + Forward Checking",
+     "A CSP backtracking solver that dynamically picks the unassigned row with the Minimum "
+     "Remaining Values (fewest legal columns) and prunes candidate domains ahead after each assignment. "
+     "It detects wipeouts immediately before descending into doomed subtrees."),
 ]
 
 ABOUT = [
     ("Kingdom Wars: The AI Queen Race",
      "A CSE project that combines constraint satisfaction with a human-versus-AI race. "
-     "Three search algorithms solve the same family of puzzles: backtracking, A*, and hill "
-     "climbing. The emphasis is on correct constraints, honest "
-     "metrics, and a playable Pygame interface rather than on claiming a universal winner."),
+     "Four search algorithms solve the same family of puzzles: basic backtracking, A*, "
+     "greedy best-first search, and MRV with forward checking. The emphasis is on correct constraints, honest "
+     "metrics, and a playable interface rather than on claiming a universal winner."),
     ("Technology",
      "Python, Pygame, pytest, heapq, and a background thread for AI search. No server, "
      "database, or cloud API is required. Progress is stored in a local JSON file when possible."),

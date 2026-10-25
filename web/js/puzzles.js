@@ -8,9 +8,9 @@ export const LEVEL_SPECS = [
   { level: 2, game: 1, n: 5, algorithmKey: "astar", algorithm: "A* Search", name: "Hard", blurb: "5×5 kingdom maps with deeper candidate search." },
   { level: 2, game: 2, n: 5, algorithmKey: "astar", algorithm: "A* Search", name: "Hard", blurb: "5×5 kingdom maps with deeper candidate search." },
   { level: 2, game: 3, n: 6, algorithmKey: "astar", algorithm: "A* Search", name: "Hard", blurb: "A 6×6 board adds more candidate decisions." },
-  { level: 3, game: 1, n: 5, algorithmKey: "hill", algorithm: "Hill Climbing", name: "Expert", blurb: "A 5×5 kingdom map with an expert-level search opponent." },
-  { level: 3, game: 2, n: 6, algorithmKey: "hill", algorithm: "Hill Climbing", name: "Expert", blurb: "6×6 boards with an expert-level local-search opponent." },
-  { level: 3, game: 3, n: 6, algorithmKey: "hill", algorithm: "Hill Climbing", name: "Expert", blurb: "6×6 boards with an expert-level local-search opponent." },
+  { level: 3, game: 1, n: 5, algorithmKey: "greedy", algorithm: "Greedy Best-First Search", name: "Expert", blurb: "A 5×5 kingdom map with an expert-level heuristic search opponent." },
+  { level: 3, game: 2, n: 6, algorithmKey: "greedy", algorithm: "Greedy Best-First Search", name: "Expert", blurb: "6×6 boards with an expert-level heuristic search opponent." },
+  { level: 3, game: 3, n: 6, algorithmKey: "greedy", algorithm: "Greedy Best-First Search", name: "Expert", blurb: "6×6 boards with an expert-level heuristic search opponent." },
 ];
 
 export const PUZZLES = [

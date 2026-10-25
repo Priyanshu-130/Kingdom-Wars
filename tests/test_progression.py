@@ -15,15 +15,10 @@ def test_three_games_unlock_rules(tmp_path: Path):
     progress = ProgressManager(tmp_path / "progress.json")
     assert LevelManager.GAMES_PER_LEVEL == 3
     assert LevelManager.LEVEL_COUNT == 3
-    assert len(LevelManager().all_solvers()) == 3
+    assert len(LevelManager().all_solvers()) == 4
     assert LevelManager().spec(2, 1).algorithm_key == "astar"
-    assert LevelManager().spec(3, 1).algorithm_key == "hill"
-    try:
-        LevelManager().solver_by_key("heuristic")
-    except KeyError:
-        pass
-    else:
-        raise AssertionError("the removed MRV solver must not be selectable")
+    assert LevelManager().spec(3, 1).algorithm_key == "greedy"
+    assert LevelManager().solver_by_key("mrv") is not None
     assert progress.is_level_unlocked(1)
     assert not progress.is_level_unlocked(2)
     progress.mark_completed(1, 1)

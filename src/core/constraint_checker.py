@@ -45,10 +45,10 @@ class ConstraintChecker:
             errors.append("Kingdom IDs must be exactly 0..N-1, each used.")
         if len(puzzle.kingdom_colors) < n:
             errors.append("Missing kingdom colors.")
-        if len(puzzle.verified_solution) != n:
-            errors.append("Verified solution length must equal N.")
-        else:
-            if any(c < 0 or c >= n for c in puzzle.verified_solution):
+        if puzzle.verified_solution:
+            if len(puzzle.verified_solution) != n:
+                errors.append("Verified solution length must equal N.")
+            elif any(c < 0 or c >= n for c in puzzle.verified_solution):
                 errors.append("Verified solution contains out-of-range columns.")
         if unique == set(range(n)):
             for kid in range(n):

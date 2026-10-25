@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from ..algorithms.astar import AStarSolver
 from ..algorithms.backtracking import BacktrackingSolver
 from ..algorithms.base_solver import BaseSolver
-from ..algorithms.hill_climbing import HillClimbingSolver
+from ..algorithms.greedy import GreedyBestFirstSolver
+from ..algorithms.mrv import MRVForwardCheckingSolver
 
 
 @dataclass(frozen=True)
@@ -25,9 +26,9 @@ LEVEL_SPECS: tuple[LevelSpec, ...] = (
     LevelSpec(2, 1, 5, "astar", "A* Search", "Hard"),
     LevelSpec(2, 2, 5, "astar", "A* Search", "Hard"),
     LevelSpec(2, 3, 6, "astar", "A* Search", "Hard"),
-    LevelSpec(3, 1, 5, "hill", "Hill Climbing", "Expert"),
-    LevelSpec(3, 2, 6, "hill", "Hill Climbing", "Expert"),
-    LevelSpec(3, 3, 6, "hill", "Hill Climbing", "Expert"),
+    LevelSpec(3, 1, 5, "greedy", "Greedy Best-First Search", "Expert"),
+    LevelSpec(3, 2, 6, "greedy", "Greedy Best-First Search", "Expert"),
+    LevelSpec(3, 3, 6, "greedy", "Greedy Best-First Search", "Expert"),
 )
 
 LEVEL_META = {
@@ -43,8 +44,8 @@ LEVEL_META = {
     },
     3: {
         "name": "Expert",
-        "algorithm": "Hill Climbing",
-        "blurb": "Local search over permutations. It can get stuck.",
+        "algorithm": "Greedy Best-First Search",
+        "blurb": "Heuristic search prioritizing promising nodes with f(n) = h(n).",
     },
 }
 
@@ -67,15 +68,20 @@ class LevelManager:
         mapping = {
             "backtracking": BacktrackingSolver,
             "astar": AStarSolver,
-            "hill": HillClimbingSolver,
+            "greedy": GreedyBestFirstSolver,
+            "mrv": MRVForwardCheckingSolver,
+            "heuristic": MRVForwardCheckingSolver,
         }
+        if key not in mapping:
+            raise KeyError(f"Unknown solver key: {key}")
         return mapping[key]()
 
     def all_solvers(self) -> list[BaseSolver]:
         return [
             BacktrackingSolver(),
             AStarSolver(),
-            HillClimbingSolver(),
+            GreedyBestFirstSolver(),
+            MRVForwardCheckingSolver(),
         ]
 
     def next_game(self, level: int, game: int) -> tuple[int, int] | None:

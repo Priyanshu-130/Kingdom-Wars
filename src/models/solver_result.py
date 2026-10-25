@@ -15,6 +15,7 @@ class TerminationReason:
     RESTART_LIMIT = "restart_limit"
     LOCAL_OPTIMUM = "local_optimum"
     INVALID_PUZZLE = "invalid_puzzle"
+    INVALID_FIXED_PLACEMENTS = "invalid_fixed_placements"
 
 
 @dataclass

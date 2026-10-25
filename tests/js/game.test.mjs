@@ -12,13 +12,21 @@ import {
   validatePuzzleDefinition,
   validateRowColumns,
 } from "../../web/js/rules.js";
-import { DEFAULT_CONFIG, SOLVERS, solveAStar, solveBacktracking, solveByKey, solveHillClimbing } from "../../web/js/solvers.js";
+import {
+  DEFAULT_CONFIG,
+  SOLVERS,
+  solveAStar,
+  solveBacktracking,
+  solveByKey,
+  solveGreedyBestFirst,
+  solveMRVForwardChecking,
+} from "../../web/js/solvers.js";
 import { GameRound, ProgressStore } from "../../web/js/race.js";
 
 const knownSolutions = [
   [2, 0, 3, 1], [1, 3, 0, 2], [2, 0, 3, 1],
   [3, 1, 4, 2, 0], [3, 1, 4, 2, 0], [1, 3, 5, 0, 2, 4],
-  [1, 3, 0, 2, 4], [4, 2, 0, 5, 3, 1], [3, 0, 4, 1, 5, 2],
+  [0, 3, 1, 4, 2], [4, 2, 0, 5, 3, 1], [3, 0, 4, 1, 5, 2],
 ];
 
 test("the native game contains nine puzzles across three algorithm tiers", () => {
@@ -26,7 +34,7 @@ test("the native game contains nine puzzles across three algorithm tiers", () =>
   assert.equal(LEVEL_SPECS.length, 9);
   assert.equal(LEVEL_COUNT, 3);
   assert.equal(GAMES_PER_LEVEL, 3);
-  assert.deepEqual(Object.keys(SOLVERS), ["backtracking", "astar", "hill"]);
+  assert.deepEqual(Object.keys(SOLVERS), ["backtracking", "astar", "greedy", "mrv"]);
   for (let index = 0; index < PUZZLES.length; index += 1) {
     const puzzle = PUZZLES[index];
     const spec = LEVEL_SPECS[index];
@@ -50,7 +58,7 @@ test("the native game contains nine puzzles across three algorithm tiers", () =>
     assert.equal(Object.hasOwn(puzzle, "verified_solution"), false);
   }
   assert.deepEqual(comparisonPuzzles().map((puzzle) => puzzle.id), ["L1G1", "L1G3", "L2G1", "L3G2"]);
-  assert.equal(specFor(3, 2).algorithmKey, "hill");
+  assert.equal(specFor(3, 2).algorithmKey, "greedy");
   assert.deepEqual(LEVEL_SPECS.map((spec) => spec.n), [4, 4, 4, 5, 5, 6, 5, 6, 6]);
   assert.deepEqual(
     [1, 2, 3].map((level) => LEVEL_SPECS.filter((spec) => spec.level === level).map((spec) => spec.n)),
@@ -71,83 +79,90 @@ test("shared rules reject rows, columns, kingdoms, diagonals, incomplete and inv
   assert.equal(validatePuzzleDefinition(malformed).valid, false);
 });
 
-test("all three active solvers return validated solutions and respect search limits", () => {
+test("all four active solvers return validated solutions and respect search limits", () => {
   const bt = solveBacktracking(puzzleFor(1, 1), DEFAULT_CONFIG);
   const astar = solveAStar(puzzleFor(2, 1), DEFAULT_CONFIG);
-  const hill = solveHillClimbing(puzzleFor(3, 1), { ...DEFAULT_CONFIG, random_seed: 7 });
-  for (const [puzzle, solved] of [[puzzleFor(1, 1), bt], [puzzleFor(2, 1), astar], [puzzleFor(3, 1), hill]]) {
+  const greedy = solveGreedyBestFirst(puzzleFor(3, 1), DEFAULT_CONFIG);
+  const mrv = solveMRVForwardChecking(puzzleFor(2, 1), DEFAULT_CONFIG);
+
+  for (const [puzzle, solved] of [
+    [puzzleFor(1, 1), bt],
+    [puzzleFor(2, 1), astar],
+    [puzzleFor(3, 1), greedy],
+    [puzzleFor(2, 1), mrv],
+  ]) {
     assert.equal(solved.success, true);
     assert.equal(validateRowColumns(puzzle, solved.solution).valid, true);
     assert.ok(solved.elapsedSeconds >= 0);
   }
+
   assert.equal(bt.metrics.nodes_visited > 0, true);
   assert.equal(astar.metrics.path_cost, puzzleFor(2, 1).n);
-  assert.equal(astar.metrics.heuristic, "h(n) = N - q(n), g(n) = q(n), f(n) = g(n) + h(n)");
+  assert.ok(astar.metrics.heuristic.includes("domain reduction"));
+  assert.ok(greedy.metrics.heuristic.includes("pure heuristic"));
+  assert.ok(mrv.metrics.candidates_eliminated >= 0);
 
   assert.equal(solveBacktracking(puzzleFor(1, 3), { ...DEFAULT_CONFIG, max_nodes: 1 }).terminationReason, "node_limit");
-  assert.throws(() => solveByKey("heuristic", puzzleFor(1, 1)), /Unknown solver/);
+  assert.throws(() => solveByKey("unknown_solver", puzzleFor(1, 1)), /Unknown solver/);
   assert.equal(solveAStar(puzzleFor(2, 2), { ...DEFAULT_CONFIG, max_expanded: 1 }).terminationReason, "expanded_limit");
+  assert.equal(solveGreedyBestFirst(puzzleFor(3, 1), { ...DEFAULT_CONFIG, max_expanded: 1 }).terminationReason, "expanded_limit");
+  assert.equal(solveMRVForwardChecking(puzzleFor(1, 1), { ...DEFAULT_CONFIG, max_nodes: 1 }).terminationReason, "node_limit");
 });
 
 test("each of the nine games runs its configured solver and returns a valid placement", () => {
-  const expectedByPuzzle = [
-    [2, 0, 3, 1], [1, 3, 0, 2], [2, 0, 3, 1],
-    [3, 1, 4, 2, 0], [3, 1, 4, 2, 0], [1, 3, 5, 0, 2, 4],
-    [1, 3, 0, 2, 4], [4, 2, 0, 5, 3, 1], [3, 0, 4, 1, 5, 2],
-  ];
   for (let index = 0; index < PUZZLES.length; index += 1) {
     const puzzle = PUZZLES[index];
     const spec = LEVEL_SPECS[index];
     const solved = ({
       backtracking: solveBacktracking,
       astar: solveAStar,
-      hill: solveHillClimbing,
+      greedy: solveGreedyBestFirst,
+      mrv: solveMRVForwardChecking,
     })[spec.algorithmKey](puzzle, DEFAULT_CONFIG);
     assert.equal(solved.success, true, `${puzzle.id} ${spec.algorithm}`);
-    assert.deepEqual(solved.solution, expectedByPuzzle[index], puzzle.id);
+    assert.deepEqual(solved.solution, knownSolutions[index], puzzle.id);
     assert.equal(validateRowColumns(puzzle, solved.solution).valid, true, puzzle.id);
   }
 });
 
-test("Hill Climbing preserves the Python-seeded random search behavior", () => {
-  const solved = solveHillClimbing(puzzleFor(3, 1), {
-    ...DEFAULT_CONFIG,
-    time_limit_seconds: 1,
-    max_restarts: 3,
-    max_iterations: 40,
-    random_seed: 99,
-  });
-  assert.equal(solved.success, true);
-  assert.deepEqual(solved.solution, [1, 3, 0, 2, 4]);
-  assert.deepEqual(
-    {
-      iterations: solved.metrics.iterations,
-      restarts: solved.metrics.restarts,
-      objective_evaluations: solved.metrics.objective_evaluations,
-      initial_conflict_score: solved.metrics.initial_conflict_score,
-      final_conflict_score: solved.metrics.final_conflict_score,
-    },
-    {
-      iterations: 2,
-      restarts: 0,
-      objective_evaluations: 21,
-      initial_conflict_score: 5,
-      final_conflict_score: 0,
-    },
-  );
+test("MRV + Forward Checking and Greedy Best-First handle edge cases, fixed queens, and unsatisfiability", () => {
+  const puzzle = puzzleFor(1, 1);
+  const fixed = [[0, 2]];
+  const mrvSolved = solveMRVForwardChecking(puzzle, DEFAULT_CONFIG, fixed);
+  assert.equal(mrvSolved.success, true);
+  assert.equal(mrvSolved.solution[0], 2);
+
+  const greedySolved = solveGreedyBestFirst(puzzle, DEFAULT_CONFIG, fixed);
+  assert.equal(greedySolved.success, true);
+  assert.equal(greedySolved.solution[0], 2);
+
+  const badFixed = [[0, 99]];
+  assert.equal(solveMRVForwardChecking(puzzle, DEFAULT_CONFIG, badFixed).terminationReason, "invalid_fixed_placements");
+  assert.equal(solveGreedyBestFirst(puzzle, DEFAULT_CONFIG, badFixed).terminationReason, "invalid_fixed_placements");
+
+  const unsolvable = {
+    n: 2,
+    kingdoms: [[0, 1], [0, 1]],
+    colors: [[56, 182, 255], [255, 107, 107]],
+  };
+  assert.equal(solveMRVForwardChecking(unsolvable, DEFAULT_CONFIG).terminationReason, "unsolvable");
+  assert.equal(solveGreedyBestFirst(unsolvable, DEFAULT_CONFIG).terminationReason, "unsolvable");
+  assert.equal(solveAStar(unsolvable, DEFAULT_CONFIG).terminationReason, "unsolvable");
+  assert.equal(solveBacktracking(unsolvable, DEFAULT_CONFIG).terminationReason, "unsolvable");
 });
 
 const solverFor = {
   backtracking: solveBacktracking,
   astar: solveAStar,
-  hill: solveHillClimbing,
+  greedy: solveGreedyBestFirst,
+  mrv: solveMRVForwardChecking,
 };
 
 function makeSolverResult(level = 1, game = 1, fixedQueens = []) {
   const spec = specFor(level, game);
   return solverFor[spec.algorithmKey](
     puzzleFor(level, game),
-    { ...DEFAULT_CONFIG, random_seed: 42 },
+    DEFAULT_CONFIG,
     fixedQueens,
   );
 }
@@ -156,24 +171,23 @@ test("the visualization trace is emitted by each genuine solver execution", () =
   const requirements = {
     backtracking: ["explore", "conflict", "backtrack", "solution"],
     astar: ["expand", "conflict", "solution"],
-    hill: ["restart", "conflict", "solution"],
+    greedy: ["expand", "conflict", "solution"],
+    mrv: ["explore", "conflict", "backtrack", "solution"],
   };
-  for (let level = 1; level <= LEVEL_COUNT; level += 1) {
-    const puzzle = puzzleFor(level, 1);
-    const spec = specFor(level, 1);
+  for (const key of ["backtracking", "astar", "greedy", "mrv"]) {
+    const puzzle = puzzleFor(1, 1);
     const events = [];
     const trace = { enabled: true, record: (event) => events.push(event) };
-    const solved = solveByKey(
-      spec.algorithmKey,
+    const solved = solverFor[key](
       puzzle,
-      { ...DEFAULT_CONFIG, random_seed: 99, time_limit_seconds: 5 },
+      { ...DEFAULT_CONFIG, time_limit_seconds: 5 },
       [],
       trace,
     );
-    assert.equal(solved.success, true, `${spec.algorithm} trace search should solve`);
+    assert.equal(solved.success, true, `${key} trace search should solve`);
     assert.equal(validateRowColumns(puzzle, solved.solution).valid, true);
-    for (const eventType of requirements[spec.algorithmKey]) {
-      assert.ok(events.some((event) => event.type === eventType), `${spec.algorithm}: missing ${eventType}`);
+    for (const eventType of requirements[key]) {
+      assert.ok(events.some((event) => event.type === eventType), `${key}: missing ${eventType}`);
     }
     const solutionEvent = events.find((event) => event.type === "solution");
     assert.ok(solutionEvent.placements.every((col) => Number.isInteger(col) && col >= 0));
@@ -223,7 +237,7 @@ test("each level invokes its configured genuine solver and plans a validated ful
   const expectedNames = {
     backtracking: "Basic Backtracking",
     astar: "A* Search",
-    hill: "Hill Climbing",
+    greedy: "Greedy Best-First Search",
   };
   for (const spec of LEVEL_SPECS) {
     const solved = makeSolverResult(spec.level, spec.game);
@@ -238,9 +252,9 @@ test("each active algorithm can repair a plan around an already-placed legal AI 
     const puzzle = puzzleFor(level, 1);
     const spec = specFor(level, 1);
     const solver = solverFor[spec.algorithmKey];
-    const solution = solver(puzzle, { ...DEFAULT_CONFIG, random_seed: 99 });
+    const solution = solver(puzzle, DEFAULT_CONFIG);
     const fixed = [[0, solution.solution[0]]];
-    const repaired = solver(puzzle, { ...DEFAULT_CONFIG, random_seed: 99 }, fixed);
+    const repaired = solver(puzzle, DEFAULT_CONFIG, fixed);
     assert.equal(repaired.success, true, `${spec.algorithm} could not extend fixed Queen`);
     assert.equal(repaired.solution[0], fixed[0][1]);
     assert.equal(validateRowColumns(puzzle, repaired.solution).valid, true);
@@ -259,7 +273,7 @@ test("AI waits for computation as well as the fixed reveal delay", () => {
   assert.equal(round.aiActions, 0);
   round.tick(900);
   assert.equal(round.aiActions, 1);
-  assert.equal(round.lastAIMove.type, "queen");
+  assert.equal(round.currentTurn, "human");
 });
 
 test("invalid Queens do not advance turns, repeated cells count once, and three distinct errors fail", () => {
@@ -439,16 +453,15 @@ test("seeded difficulty study shows increasing challenge across the three tiers"
       aiTurns: 0,
       searchEffort: 0,
     };
+
     for (const puzzle of puzzles) {
       const spec = specFor(level, puzzle.game);
       for (let seed = 0; seed < samplesPerPuzzle; seed += 1) {
-        const solved = solverFor[spec.algorithmKey](puzzle, {
-          ...DEFAULT_CONFIG,
-          random_seed: seed,
-        });
+        const solved = solverFor[spec.algorithmKey](puzzle, DEFAULT_CONFIG);
         const policy = humanSearchPlan(puzzle, seed);
         const round = new GameRound(puzzle, 0);
         round.setAIPlan(solved, solved.elapsedSeconds * 1000);
+
         let now = 0;
         let humanTurns = 0;
         if (!round.result) {
@@ -457,6 +470,7 @@ test("seeded difficulty study shows increasing challenge across the three tiers"
             assert.equal(round.toggleHuman(action.row, action.col, now), true);
             humanTurns += 1;
             if (round.result) break;
+
             now = Math.max(now + AI_MOVE_DELAY_MS, solved.elapsedSeconds * 1000);
             round.tick(now);
             if (round.result) break;
@@ -472,7 +486,6 @@ test("seeded difficulty study shows increasing challenge across the three tiers"
         totals.aiTurns += round.aiActions;
         totals.searchEffort += solved.metrics.nodes_visited
           ?? solved.metrics.states_expanded
-          ?? solved.metrics.objective_evaluations
           ?? 0;
       }
     }
