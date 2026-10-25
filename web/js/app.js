@@ -676,8 +676,7 @@ class KingdomWarsBrowserApp {
       ${lab.traceTruncated ? '<p class="lab-note">The search completed in full. The animation is capped at 6,000 real events and the tree canvas at 350 nodes to keep the browser responsive; summary statistics cover the full run.</p>' : ""}
       <section class="panel lab-playback">
         <div class="lab-controls">
-          <button class="button" data-action="lab-play"${!lab.events.length || lab.playing ? " disabled" : ""}>Play</button>
-          <button class="button" data-action="lab-pause"${!lab.playing ? " disabled" : ""}>Pause</button>
+          <button class="button" data-action="lab-play"${!lab.events.length ? " disabled" : ""}>${lab.playing ? "Pause" : "Play"}</button>
           <button class="button" data-action="lab-reset"${!lab.events.length ? " disabled" : ""}>Reset</button>
           <button class="button" data-action="lab-step"${!lab.events.length || lab.cursor >= lab.events.length ? " disabled" : ""}>Next Step</button>
           <label>Speed<select data-lab-control="speed">
@@ -822,6 +821,7 @@ class KingdomWarsBrowserApp {
     this.labState.playing = false;
     if (this.labState.timer !== null) window.clearTimeout(this.labState.timer);
     this.labState.timer = null;
+    this.renderLabControls();
   }
 
   stepLab() {
@@ -836,7 +836,10 @@ class KingdomWarsBrowserApp {
   }
 
   playLab() {
-    if (!this.labState.events.length || this.labState.cursor >= this.labState.events.length) return;
+    if (!this.labState.events.length) return;
+    if (this.labState.cursor >= this.labState.events.length) {
+      this.labState.cursor = 0;
+    }
     this.labState.playing = true;
     const advance = () => {
       if (!this.labState.playing) return;
@@ -849,13 +852,22 @@ class KingdomWarsBrowserApp {
     this.renderLabControls();
   }
 
+  toggleLabPlayback() {
+    if (this.labState.playing) {
+      this.stopLabPlayback();
+    } else {
+      this.playLab();
+    }
+  }
+
   renderLabControls() {
     const lab = this.labState;
     const play = this.root.querySelector('[data-action="lab-play"]');
-    const pause = this.root.querySelector('[data-action="lab-pause"]');
     const step = this.root.querySelector('[data-action="lab-step"]');
-    if (play) play.disabled = !lab.events.length || lab.playing || lab.cursor >= lab.events.length;
-    if (pause) pause.disabled = !lab.playing;
+    if (play) {
+      play.disabled = !lab.events.length;
+      play.textContent = lab.playing ? "Pause" : "Play";
+    }
     if (step) step.disabled = !lab.events.length || lab.cursor >= lab.events.length;
   }
 
@@ -931,11 +943,8 @@ class KingdomWarsBrowserApp {
     } else if (action === "run-comparison") this.runComparison();
     else if (action === "lab-run") this.runLab();
     else if (action === "lab-gallery") this.generateSolutionGallery();
-    else if (action === "lab-play") this.playLab();
-    else if (action === "lab-pause") {
-      this.stopLabPlayback();
-      this.renderLabControls();
-    } else if (action === "lab-reset") {
+    else if (action === "lab-play") this.toggleLabPlayback();
+    else if (action === "lab-reset") {
       this.stopLabPlayback();
       this.labState.cursor = 0;
       this.drawLab();
