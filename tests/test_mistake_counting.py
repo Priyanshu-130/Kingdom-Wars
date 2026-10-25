@@ -1,4 +1,4 @@
-from src.algorithms.backtracking import BacktrackingSolver
+from src.algorithms.mrv import MRVForwardCheckingSolver
 from src.core.game_controller import GameController
 from src.core.progress_manager import ProgressManager
 from src.core.puzzle_repository import PuzzleRepository
@@ -40,7 +40,7 @@ def test_three_invalid_queen_cells_end_game_and_restart_resets(tmp_path):
     assert round_manager.human_board.queens == board_before
     assert (1, 0) not in round_manager.x_marks
 
-    round_manager.restart(BacktrackingSolver())
+    round_manager.restart(MRVForwardCheckingSolver())
     assert round_manager.mistakes == 0
     assert not round_manager.invalid_cells
     assert not round_manager.x_marks

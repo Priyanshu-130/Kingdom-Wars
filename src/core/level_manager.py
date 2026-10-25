@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..algorithms.astar import AStarSolver
-from ..algorithms.backtracking import BacktrackingSolver
 from ..algorithms.base_solver import BaseSolver
 from ..algorithms.greedy import GreedyBestFirstSolver
 from ..algorithms.mrv import MRVForwardCheckingSolver
@@ -20,39 +18,31 @@ class LevelSpec:
 
 
 LEVEL_SPECS: tuple[LevelSpec, ...] = (
-    LevelSpec(1, 1, 4, "backtracking", "Basic Backtracking", "Easy"),
-    LevelSpec(1, 2, 4, "backtracking", "Basic Backtracking", "Easy"),
-    LevelSpec(1, 3, 4, "backtracking", "Basic Backtracking", "Easy"),
-    LevelSpec(2, 1, 5, "astar", "A* Search", "Hard"),
-    LevelSpec(2, 2, 5, "astar", "A* Search", "Hard"),
-    LevelSpec(2, 3, 6, "astar", "A* Search", "Hard"),
-    LevelSpec(3, 1, 5, "greedy", "Greedy Best-First Search", "Expert"),
-    LevelSpec(3, 2, 6, "greedy", "Greedy Best-First Search", "Expert"),
-    LevelSpec(3, 3, 6, "greedy", "Greedy Best-First Search", "Expert"),
+    LevelSpec(1, 1, 4, "mrv", "MRV + Forward Checking", "Level 1"),
+    LevelSpec(1, 2, 4, "mrv", "MRV + Forward Checking", "Level 1"),
+    LevelSpec(1, 3, 4, "mrv", "MRV + Forward Checking", "Level 1"),
+    LevelSpec(2, 1, 5, "greedy", "Greedy Best-First Search", "Level 2"),
+    LevelSpec(2, 2, 6, "greedy", "Greedy Best-First Search", "Level 2"),
+    LevelSpec(2, 3, 6, "greedy", "Greedy Best-First Search", "Level 2"),
 )
 
 LEVEL_META = {
     1: {
-        "name": "Easy",
-        "algorithm": "Basic Backtracking",
-        "blurb": "Systematic search with undo when a partial placement fails.",
+        "name": "Level 1",
+        "algorithm": "MRV + Forward Checking",
+        "blurb": "Systematic CSP solver with Minimum Remaining Values variable ordering and forward checking inference.",
     },
     2: {
-        "name": "Hard",
-        "algorithm": "A* Search",
-        "blurb": "Priority-queue search with f(n) = g(n) + h(n).",
-    },
-    3: {
-        "name": "Expert",
+        "name": "Level 2",
         "algorithm": "Greedy Best-First Search",
-        "blurb": "Heuristic search prioritizing promising nodes with f(n) = h(n).",
+        "blurb": "Informed priority-queue search evaluating promising states purely by f(n) = h(n).",
     },
 }
 
 
 class LevelManager:
     GAMES_PER_LEVEL = 3
-    LEVEL_COUNT = 3
+    LEVEL_COUNT = 2
 
     def spec(self, level: int, game: int) -> LevelSpec:
         for item in LEVEL_SPECS:
@@ -66,10 +56,8 @@ class LevelManager:
 
     def solver_by_key(self, key: str) -> BaseSolver:
         mapping = {
-            "backtracking": BacktrackingSolver,
-            "astar": AStarSolver,
-            "greedy": GreedyBestFirstSolver,
             "mrv": MRVForwardCheckingSolver,
+            "greedy": GreedyBestFirstSolver,
             "heuristic": MRVForwardCheckingSolver,
         }
         if key not in mapping:
@@ -78,10 +66,8 @@ class LevelManager:
 
     def all_solvers(self) -> list[BaseSolver]:
         return [
-            BacktrackingSolver(),
-            AStarSolver(),
-            GreedyBestFirstSolver(),
             MRVForwardCheckingSolver(),
+            GreedyBestFirstSolver(),
         ]
 
     def next_game(self, level: int, game: int) -> tuple[int, int] | None:

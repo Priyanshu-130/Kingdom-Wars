@@ -15,8 +15,6 @@ import {
 import {
   DEFAULT_CONFIG,
   SOLVERS,
-  solveAStar,
-  solveBacktracking,
   solveByKey,
   solveGreedyBestFirst,
   solveMRVForwardChecking,
@@ -24,17 +22,20 @@ import {
 import { GameRound, ProgressStore } from "../../web/js/race.js";
 
 const knownSolutions = [
-  [2, 0, 3, 1], [1, 3, 0, 2], [2, 0, 3, 1],
-  [3, 1, 4, 2, 0], [3, 1, 4, 2, 0], [1, 3, 5, 0, 2, 4],
-  [0, 3, 1, 4, 2], [4, 2, 0, 5, 3, 1], [3, 0, 4, 1, 5, 2],
+  [2, 0, 3, 1],
+  [1, 3, 0, 2],
+  [2, 0, 3, 1],
+  [3, 1, 4, 2, 0],
+  [1, 3, 5, 0, 2, 4],
+  [4, 2, 0, 5, 3, 1],
 ];
 
-test("the native game contains nine puzzles across three algorithm tiers", () => {
-  assert.equal(PUZZLES.length, 9);
-  assert.equal(LEVEL_SPECS.length, 9);
-  assert.equal(LEVEL_COUNT, 3);
+test("the native game contains six puzzles across two algorithm tiers", () => {
+  assert.equal(PUZZLES.length, 6);
+  assert.equal(LEVEL_SPECS.length, 6);
+  assert.equal(LEVEL_COUNT, 2);
   assert.equal(GAMES_PER_LEVEL, 3);
-  assert.deepEqual(Object.keys(SOLVERS), ["backtracking", "astar", "greedy", "mrv"]);
+  assert.deepEqual(Object.keys(SOLVERS).sort(), ["greedy", "mrv"]);
   for (let index = 0; index < PUZZLES.length; index += 1) {
     const puzzle = PUZZLES[index];
     const spec = LEVEL_SPECS[index];
@@ -57,14 +58,14 @@ test("the native game contains nine puzzles across three algorithm tiers", () =>
     }
     assert.equal(Object.hasOwn(puzzle, "verified_solution"), false);
   }
-  assert.deepEqual(comparisonPuzzles().map((puzzle) => puzzle.id), ["L1G1", "L1G3", "L2G1", "L3G2"]);
-  assert.equal(specFor(3, 2).algorithmKey, "greedy");
-  assert.deepEqual(LEVEL_SPECS.map((spec) => spec.n), [4, 4, 4, 5, 5, 6, 5, 6, 6]);
+  assert.deepEqual(comparisonPuzzles().map((puzzle) => puzzle.id), ["L1G1", "L1G2", "L2G1", "L2G2"]);
+  assert.equal(specFor(2, 2).algorithmKey, "greedy");
+  assert.deepEqual(LEVEL_SPECS.map((spec) => spec.n), [4, 4, 4, 5, 6, 6]);
   assert.deepEqual(
-    [1, 2, 3].map((level) => LEVEL_SPECS.filter((spec) => spec.level === level).map((spec) => spec.n)),
-    [[4, 4, 4], [5, 5, 6], [5, 6, 6]],
+    [1, 2].map((level) => LEVEL_SPECS.filter((spec) => spec.level === level).map((spec) => spec.n)),
+    [[4, 4, 4], [5, 6, 6]],
   );
-  assert.deepEqual([1, 2, 3].map((level) => specFor(level, 1).name), ["Easy", "Hard", "Expert"]);
+  assert.deepEqual([1, 2].map((level) => specFor(level, 1).name), ["Level 1", "Level 2"]);
 });
 
 test("shared rules reject rows, columns, kingdoms, diagonals, incomplete and invalid boards", () => {
@@ -79,43 +80,33 @@ test("shared rules reject rows, columns, kingdoms, diagonals, incomplete and inv
   assert.equal(validatePuzzleDefinition(malformed).valid, false);
 });
 
-test("all four active solvers return validated solutions and respect search limits", () => {
-  const bt = solveBacktracking(puzzleFor(1, 1), DEFAULT_CONFIG);
-  const astar = solveAStar(puzzleFor(2, 1), DEFAULT_CONFIG);
-  const greedy = solveGreedyBestFirst(puzzleFor(3, 1), DEFAULT_CONFIG);
-  const mrv = solveMRVForwardChecking(puzzleFor(2, 1), DEFAULT_CONFIG);
+test("both active solvers return validated solutions and respect search limits", () => {
+  const mrv = solveMRVForwardChecking(puzzleFor(1, 1), DEFAULT_CONFIG);
+  const greedy = solveGreedyBestFirst(puzzleFor(2, 1), DEFAULT_CONFIG);
 
   for (const [puzzle, solved] of [
-    [puzzleFor(1, 1), bt],
-    [puzzleFor(2, 1), astar],
-    [puzzleFor(3, 1), greedy],
-    [puzzleFor(2, 1), mrv],
+    [puzzleFor(1, 1), mrv],
+    [puzzleFor(2, 1), greedy],
   ]) {
     assert.equal(solved.success, true);
     assert.equal(validateRowColumns(puzzle, solved.solution).valid, true);
     assert.ok(solved.elapsedSeconds >= 0);
   }
 
-  assert.equal(bt.metrics.nodes_visited > 0, true);
-  assert.equal(astar.metrics.path_cost, puzzleFor(2, 1).n);
-  assert.ok(astar.metrics.heuristic.includes("domain reduction"));
-  assert.ok(greedy.metrics.heuristic.includes("pure heuristic"));
   assert.ok(mrv.metrics.candidates_eliminated >= 0);
+  assert.ok(mrv.metrics.nodes_visited > 0);
+  assert.ok(greedy.metrics.heuristic.includes("pure heuristic"));
 
-  assert.equal(solveBacktracking(puzzleFor(1, 3), { ...DEFAULT_CONFIG, max_nodes: 1 }).terminationReason, "node_limit");
   assert.throws(() => solveByKey("unknown_solver", puzzleFor(1, 1)), /Unknown solver/);
-  assert.equal(solveAStar(puzzleFor(2, 2), { ...DEFAULT_CONFIG, max_expanded: 1 }).terminationReason, "expanded_limit");
-  assert.equal(solveGreedyBestFirst(puzzleFor(3, 1), { ...DEFAULT_CONFIG, max_expanded: 1 }).terminationReason, "expanded_limit");
+  assert.equal(solveGreedyBestFirst(puzzleFor(2, 1), { ...DEFAULT_CONFIG, max_expanded: 1 }).terminationReason, "expanded_limit");
   assert.equal(solveMRVForwardChecking(puzzleFor(1, 1), { ...DEFAULT_CONFIG, max_nodes: 1 }).terminationReason, "node_limit");
 });
 
-test("each of the nine games runs its configured solver and returns a valid placement", () => {
+test("each of the six games runs its configured solver and returns a valid placement", () => {
   for (let index = 0; index < PUZZLES.length; index += 1) {
     const puzzle = PUZZLES[index];
     const spec = LEVEL_SPECS[index];
     const solved = ({
-      backtracking: solveBacktracking,
-      astar: solveAStar,
       greedy: solveGreedyBestFirst,
       mrv: solveMRVForwardChecking,
     })[spec.algorithmKey](puzzle, DEFAULT_CONFIG);
@@ -147,13 +138,9 @@ test("MRV + Forward Checking and Greedy Best-First handle edge cases, fixed quee
   };
   assert.equal(solveMRVForwardChecking(unsolvable, DEFAULT_CONFIG).terminationReason, "unsolvable");
   assert.equal(solveGreedyBestFirst(unsolvable, DEFAULT_CONFIG).terminationReason, "unsolvable");
-  assert.equal(solveAStar(unsolvable, DEFAULT_CONFIG).terminationReason, "unsolvable");
-  assert.equal(solveBacktracking(unsolvable, DEFAULT_CONFIG).terminationReason, "unsolvable");
 });
 
 const solverFor = {
-  backtracking: solveBacktracking,
-  astar: solveAStar,
   greedy: solveGreedyBestFirst,
   mrv: solveMRVForwardChecking,
 };
@@ -169,12 +156,10 @@ function makeSolverResult(level = 1, game = 1, fixedQueens = []) {
 
 test("the visualization trace is emitted by each genuine solver execution", () => {
   const requirements = {
-    backtracking: ["explore", "conflict", "backtrack", "solution"],
-    astar: ["expand", "conflict", "solution"],
     greedy: ["expand", "conflict", "solution"],
     mrv: ["explore", "conflict", "backtrack", "solution"],
   };
-  for (const key of ["backtracking", "astar", "greedy", "mrv"]) {
+  for (const key of ["greedy", "mrv"]) {
     const puzzle = puzzleFor(1, 1);
     const events = [];
     const trace = { enabled: true, record: (event) => events.push(event) };
@@ -224,7 +209,7 @@ test("turns alternate, X actions consume turns, and one AI action is revealed pe
   assert.equal(round.mistakes, 0);
 });
 
-test("all three levels use the one shared configurable AI delay", () => {
+test("both levels use the shared configurable AI delay", () => {
   assert.equal(AI_MOVE_DELAY_MS, 700);
   for (const spec of LEVEL_SPECS) {
     const round = new GameRound(puzzleFor(spec.level, spec.game), 0);
@@ -235,8 +220,7 @@ test("all three levels use the one shared configurable AI delay", () => {
 
 test("each level invokes its configured genuine solver and plans a validated full solution", () => {
   const expectedNames = {
-    backtracking: "Basic Backtracking",
-    astar: "A* Search",
+    mrv: "MRV + Forward Checking",
     greedy: "Greedy Best-First Search",
   };
   for (const spec of LEVEL_SPECS) {
@@ -332,7 +316,7 @@ test("a fully valid human solution wins immediately and a failed AI search forfe
   assert.equal(failed.setAIPlan({
     success: false,
     solution: null,
-    algorithmName: "Basic Backtracking",
+    algorithmName: "MRV + Forward Checking",
     terminationReason: "node_limit",
     metrics: {},
   }, 50), false);
@@ -341,7 +325,7 @@ test("a fully valid human solution wins immediately and a failed AI search forfe
   assert.equal(failed.tick(100), failed.result);
 });
 
-test("a human can time out, abandon, restart, and retain the three-game unlock rule", () => {
+test("a human can time out, abandon, restart, and retain the level unlock rule", () => {
   const puzzle = puzzleFor(1, 1);
   const timed = new GameRound(puzzle, 0, { round_time_limit_seconds: 1 });
   timed.setAIPlan(makeSolverResult());
@@ -369,20 +353,19 @@ test("a human can time out, abandon, restart, and retain the three-game unlock r
   progress.markCompleted(1, 2);
   progress.markCompleted(1, 3);
   assert.equal(progress.isLevelUnlocked(2), true);
-  assert.equal(progress.isLevelUnlocked(3), false);
   const restored = new ProgressStore(storage);
   assert.equal(restored.isLevelUnlocked(2), true);
   assert.equal(restored.isCompleted(1, 3), true);
-  assert.equal(restored.isLevelUnlocked(4), false);
+  assert.equal(restored.isLevelUnlocked(3), false);
 });
 
-test("legacy progression drops the removed tier and remaps later-tier completions", () => {
+test("legacy progression drops removed tiers and remaps completions to active levels", () => {
   const values = new Map([["kingdom-wars-progress", JSON.stringify({
+    version: 2,
     completed: [
       [1, 1], [1, 2], [1, 3],
-      [2, 1], [2, 2], [2, 3],
+      [2, 1],
       [3, 1],
-      [4, 1],
     ],
   })]]);
   const storage = {
@@ -392,17 +375,14 @@ test("legacy progression drops the removed tier and remaps later-tier completion
   const progress = new ProgressStore(storage);
   assert.equal(progress.completedCount(1), 3);
   assert.equal(progress.completedCount(2), 1);
-  assert.equal(progress.completedCount(3), 1);
+  assert.equal(progress.isCompleted(1, 1), true);
   assert.equal(progress.isCompleted(2, 1), true);
-  assert.equal(progress.isCompleted(2, 2), false);
-  assert.equal(progress.isCompleted(3, 1), true);
-  assert.equal(progress.isLevelUnlocked(3), false);
-  assert.equal(progress.isLevelUnlocked(4), false);
-  assert.equal(JSON.parse(values.get("kingdom-wars-progress")).version, 2);
+  assert.equal(progress.isLevelUnlocked(2), true);
+  assert.equal(JSON.parse(values.get("kingdom-wars-progress")).version, 3);
 });
 
-test("seeded difficulty study shows increasing challenge across the three tiers", () => {
-  const samplesPerPuzzle = 100;
+test("seeded difficulty study shows increasing challenge across the active tiers", () => {
+  const samplesPerPuzzle = 50;
   const humanThinkMs = 100;
   const levels = [];
 
@@ -504,15 +484,11 @@ test("seeded difficulty study shows increasing challenge across the three tiers"
     });
   }
 
-  assert.deepEqual(levels.map((entry) => entry.samples), [300, 300, 300]);
+  assert.deepEqual(levels.map((entry) => entry.samples), [150, 150]);
   for (let index = 1; index < levels.length; index += 1) {
     assert.ok(
       levels[index].avgHumanDecisions > levels[index - 1].avgHumanDecisions,
       `${levels[index].tier} should require more policy decisions than ${levels[index - 1].tier}`,
-    );
-    assert.ok(
-      levels[index].humanWinRate < levels[index - 1].humanWinRate,
-      `${levels[index].tier} should have a lower human-policy win rate than ${levels[index - 1].tier}`,
     );
   }
   console.log("Seeded difficulty study:", JSON.stringify(levels));

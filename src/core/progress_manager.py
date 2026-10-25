@@ -10,7 +10,7 @@ from .level_manager import LevelManager
 class ProgressManager:
     """Local JSON progress. Completing a finalized round marks a game done once."""
 
-    PROGRESS_VERSION = 2
+    PROGRESS_VERSION = 3
 
     def __init__(self, path: Path | None = None) -> None:
         root = Path(__file__).resolve().parents[2]
@@ -49,11 +49,13 @@ class ProgressManager:
             old_level, game = item
             if not isinstance(old_level, int) or not isinstance(game, int):
                 continue
-            level = (
-                {1: 1, 3: 2, 4: 3}.get(old_level)
-                if previous_version < self.PROGRESS_VERSION
-                else old_level
-            )
+            if previous_version == 1:
+                level = {1: 1, 4: 2}.get(old_level)
+            elif previous_version == 2:
+                level = {1: 1, 3: 2}.get(old_level)
+            else:
+                level = old_level
+
             if (
                 level is not None
                 and 1 <= level <= LevelManager.LEVEL_COUNT

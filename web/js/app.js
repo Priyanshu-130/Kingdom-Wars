@@ -16,74 +16,47 @@ const CLICK_DELAY_MS = 300;
 const SOLVER_WORKER_URL = new URL("./solver-worker.js?four-solvers-v1", import.meta.url);
 
 const ALGORITHM_GUIDES = {
-  backtracking: {
-    name: "Basic Backtracking",
-    tagline: "Build a solution one row at a time, and undo choices when a branch gets stuck.",
+  mrv: {
+    name: "MRV + Forward Checking",
+    tagline: "Select the most constrained row first (Minimum Remaining Values) and prune candidate domains ahead of time.",
     steps: [
-      "Start at the first unfilled row and try its columns from left to right.",
-      "Keep a Queen only if it passes the column, diagonal, and kingdom rules.",
-      "Continue to the next row. If no column works, remove the last Queen and try its next option.",
-      "Finish when every row has a Queen and the complete board passes validation.",
+      "MRV variable ordering: dynamically pick the unassigned row with the fewest legal column candidates.",
+      "Try legal column candidates for that row in sorted order.",
+      "Forward Checking: immediately prune all conflicting column values from the domains of remaining unassigned rows.",
+      "If any unassigned row domain is wiped out (0 candidates), detect the dead end and backtrack immediately.",
+      "Restore pruned domain snapshots upon backtracking.",
     ],
-    watch: "On the board, Queens accumulate down the rows. Red marks are rejected trials; purple marks show a Queen being undone.",
-    tradeoff: "Systematic and complete within its limits, but may explore many branches in worst-case O(N!).",
-  },
-  astar: {
-    name: "A* Search",
-    tagline: "Evaluate queued partial boards with f(n) = g(n) + h(n), balancing placed queens and domain tightness.",
-    steps: [
-      "Each priority queue node represents a partial Queen placement.",
-      "Expand the queued state with the smallest f = g + h. Here, g is Queens placed (depth) and h estimates remaining difficulty.",
-      "The heuristic h evaluates unassigned rows and penalizes domain reductions, detecting dead ends where a row has 0 legal options.",
-      "Generate legal child states for the next empty row; prune conflicting or previously explored duplicate states.",
-      "Stop when an expanded complete board passes the shared puzzle validator.",
-    ],
-    watch: "Blue nodes are generated or expanded states; red nodes violate a rule; amber nodes duplicate an explored state.",
-    tradeoff: "Informed priority-queue exploration. Adding domain penalties prevents f = N degeneracy but makes h an informed CSP heuristic rather than a strictly admissible shortest-path heuristic.",
+    watch: "Row assignments jump dynamically based on constrainedness rather than rigid sequential order. Prunings and backtracks are clearly marked.",
+    tradeoff: "Complete systematic CSP search with forward inference; prunes unviable subtrees much earlier than naive search.",
   },
   greedy: {
     name: "Greedy Best-First Search",
-    tagline: "Aggressively expand the state that appears closest to a goal, evaluating nodes purely by f(n) = h(n).",
+    tagline: "Expand states prioritising promising boards purely by f(n) = h(n).",
     steps: [
-      "Each priority queue node represents a partial Queen placement.",
-      "Unlike A*, Greedy Best-First ignores path cost g(n) and prioritizes nodes strictly by smallest h(n).",
-      "States with more Queens placed and more open legal cells in remaining rows receive lower h values.",
-      "If a branch produces a dead end (a row with zero options), its heuristic penalty spikes, redirecting the search.",
-      "Stop when a complete board passes the shared puzzle validator.",
+      "Priority queue ordering: min-heap evaluated strictly on heuristic h(n), ignoring path cost g(n).",
+      "Heuristic h(n) evaluates unassigned variables, domain tightness, and applies heavy penalties to dead-end states.",
+      "Detects and skips previously explored duplicate board states.",
+      "Bounded memory and expansion limits prevent runaway exploration.",
+      "Stop when a complete board passes independent rule validation.",
     ],
-    watch: "Greedy search drives rapidly down promising branches. If trapped, it backtracks via the priority queue.",
-    tradeoff: "Often expands fewer nodes than unguided search, but is incomplete and non-optimal in general; can be misled by greedy choices.",
-  },
-  mrv: {
-    name: "MRV + Forward Checking",
-    tagline: "Select the most constrained variable first (Minimum Remaining Values) and prune domains ahead of time.",
-    steps: [
-      "MRV variable ordering: instead of rigid row 0 to N-1 order, always select the unassigned row with the fewest legal column candidates.",
-      "Try legal column candidates for that row in sorted order.",
-      "Forward Checking: after placing a Queen, immediately prune all conflicting values from the domains of all other unassigned rows.",
-      "If any unassigned row's domain is wiped out (0 candidates), detect the dead end immediately at depth k and backtrack.",
-      "Restore pruned domain snapshots upon backtracking.",
-    ],
-    watch: "Assignments jump between rows based on constrainedness rather than sequential order. Red marks show domain eliminations and backtracks.",
-    tradeoff: "Complete systematic CSP search with forward inference; prunes failures much earlier than simple backtracking.",
+    watch: "Greedy search drives rapidly down the most promising branches; if trapped, it backtracks via the priority queue.",
+    tradeoff: "Fast in practice on many boards, but not guaranteed to find a solution or formally prove unsatisfiability in bounded search.",
   },
 };
 
 const INSTRUCTIONS = [
-  ["Puzzle rules", "Place exactly N queens on an N×N board so that every row, every column, and every colored kingdom contains one queen. No two queens may share a diagonal. All of these rules must hold at the same time. A board that breaks any one rule is invalid."],
-  ["Kingdoms", "The board is partitioned into N connected regions. Connectivity is 4-directional (up, down, left, right). The stored reference solution is never shown during a race and is never used to fake the AI's performance."],
-  ["Turn-based race", "You and the AI have separate boards and alternate one move at a time. You move first. A valid Queen placement or an X annotation ends that player's turn; an invalid Queen placement counts as a mistake and keeps your turn. The first player to complete a valid board wins. The round limit is 120 seconds."],
-  ["Equal AI delay", "Every AI action, at every level, waits the same 700 ms before it is revealed. Search runs in a Web Worker. If the solver is still computing after 700 ms, the AI waits until its legal move is ready. The separate live search replay can be slowed to 300, 400, or 500 ms per event; this never changes solver execution time or the fixed reveal delay."],
-  ["AI moves and X marks", "Each AI level runs its assigned genuine solver to create a full legal plan, then reveals only one action on each AI turn. The AI revalidates each planned Queen against its own board and recomputes from already-placed Queens if necessary. AI X marks visually show cells ruled out by its Queens; X marks do not block Queen placement or affect mistakes. AI X moves consume turns, as requested."],
-  ["Basic Backtracking", "Queens are placed one row at a time. Each legal column is tried. If a partial placement cannot be completed, the algorithm undoes it and tries the next option. This is the reliable baseline solver."],
-  ["A* Search", "Nodes represent partial placements ordered by f(n) = g(n) + h(n). g(n) is placed Queens and h(n) estimates remaining difficulty including unassigned domain reduction. Duplicate states are skipped. Limits apply to expanded states and memory."],
-  ["Greedy Best-First Search", "Evaluates nodes purely by f(n) = h(n), ignoring path cost g(n). It greedily pursues states with fewest remaining variables and fewest constrained domains. Fast in practice, but incomplete and non-optimal in the general case."],
-  ["MRV + Forward Checking", "A CSP solver using Minimum Remaining Values to dynamically pick the variable with fewest legal values, combined with forward checking to prune conflicting domain values from unassigned variables after every placement."],
+  ["Puzzle rules", "Place exactly N queens on an N×N board so that every row, every column, and every colored kingdom contains one queen. No two queens may share a diagonal. All constraints must hold simultaneously."],
+  ["Kingdoms", "The board is partitioned into N 4-connected regions. Reference solutions are never used to fake the AI's performance."],
+  ["Turn-based race", "You and the AI have separate boards and alternate one move at a time. The first player to complete a valid board wins. Round limit is 120 seconds."],
+  ["Equal AI delay", "Every AI action waits the same 700 ms before it is revealed. Solvers run in a background Web Worker."],
+  ["AI moves and X marks", "The AI runs its assigned genuine solver to create a full legal plan, then reveals actions turn by turn. Cross marks (×) visually show cells ruled out."],
+  ["MRV + Forward Checking (Level 1)", "A systematic CSP solver using Minimum Remaining Values to dynamically pick the row with fewest legal columns, combined with forward checking to prune conflicting domain values from unassigned variables after every placement."],
+  ["Greedy Best-First Search (Level 2)", "Informed priority-queue search evaluating partial board states purely by f(n) = h(n). Aggressively prioritizes states with high remaining domain flexibility. Not guaranteed to find a solution or prove unsatisfiability."],
 ];
 
 const ABOUT = [
-  ["Kingdom Wars: The AI Queen Race", "A strategy game combining constraint satisfaction with an alternating human-versus-AI race. Three real search algorithms solve the same family of colored-kingdom N-Queens puzzles, with shared validation and honest solver metrics."],
-  ["Technology", "This browser edition is native HTML, CSS, and vanilla JavaScript. The solvers run in a browser Web Worker; progression is saved in local storage. No Python, Pygame, WebAssembly, server, database, or cloud API is required to play."],
+  ["Kingdom Wars: The AI Queen Race", "A strategy game combining constraint satisfaction with an alternating human-versus-AI race. Two genuine search algorithms solve colored-kingdom N-Queens puzzles, with shared authoritative validation and honest metrics."],
+  ["Technology", "Native HTML, CSS, and vanilla JavaScript. Solvers run in a Web Worker; progression is saved in local storage. No external servers or APIs required."],
 ];
 
 function escapeHTML(value) {
@@ -113,16 +86,10 @@ function explainSearchEvent(event, algorithmKey) {
   if (event.type === "prune") return `Pruned${position}: this partial arrangement has already been explored or eliminated, so the search skips it.`;
   if (event.type === "expand") return `Expanding partial board from priority queue: state popped to generate and evaluate its candidate extensions.`;
   if (event.type === "explore") {
-    if (algorithmKey === "astar") {
-      return `A* creates legal child state${position} and queues it with f = g + h.`;
-    }
     if (algorithmKey === "greedy") {
-      return `Greedy Best-First creates legal child state${position} and queues it evaluated by h.`;
+      return `Greedy Best-First creates legal child state${position} and queues it evaluated strictly by h(n).`;
     }
-    if (algorithmKey === "mrv") {
-      return `MRV assigns Queen${position} and forward checks remaining variable domains.`;
-    }
-    return `Backtracking places a legal Queen${position} and recurses.`;
+    return `MRV assigns Queen${position} and forward checks remaining variable domains.`;
   }
   return `The solver recorded a ${event.type} event${position}.`;
 }
@@ -439,7 +406,7 @@ class KingdomWarsBrowserApp {
     this.comparisonRepeats = 1;
     this.labWorker = null;
     this.labState = {
-      algorithmKey: "backtracking",
+      algorithmKey: "mrv",
       puzzleId: "L1G1",
       speed: 4,
       events: [],
@@ -641,7 +608,7 @@ class KingdomWarsBrowserApp {
         const metrics = Object.entries(solver.metrics || {}).map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`).join("　·　");
         return `<article class="comparison-row"><h2>${escapeHTML(row.algorithm)}</h2><p>success=${solver.success}　time=${formatTime(solver.elapsedSeconds, 4)}　reason=${escapeHTML(solver.terminationReason)}　successes=${row.successes}/${row.repeats}${solver.randomSeed !== null ? `　seed=${solver.randomSeed}` : ""}</p><p>${escapeHTML(metrics || "No extra metrics.")}</p></article>`;
       }).join("")
-      : `<p class="comparison-empty">${this.comparisonRunning ? "Running all three solvers on the selected verified puzzle…" : "Choose a puzzle, then run the comparison."}</p>`;
+      : `<p class="comparison-empty">${this.comparisonRunning ? "Running both solvers on the selected verified puzzle…" : "Choose a puzzle, then run the comparison."}</p>`;
     return `<section class="screen">
       <header class="screen-header">
         <button class="button" data-action="menu">Main Menu</button>
@@ -660,12 +627,10 @@ class KingdomWarsBrowserApp {
 
   renderLab() {
     const lab = this.labState;
-    const currentGuide = ALGORITHM_GUIDES[lab.algorithmKey] || ALGORITHM_GUIDES.backtracking;
+    const currentGuide = ALGORITHM_GUIDES[lab.algorithmKey] || ALGORITHM_GUIDES.mrv;
     const algorithms = [
-      { key: "backtracking", title: "Basic Backtracking" },
-      { key: "astar", title: "A* Search" },
+      { key: "mrv", title: "CSP Backtracking + MRV + Forward Checking" },
       { key: "greedy", title: "Greedy Best-First Search" },
-      { key: "mrv", title: "MRV + Forward Checking" },
     ];
     const algorithmOptions = algorithms.map(({ key, title }) =>
       `<option value="${key}"${lab.algorithmKey === key ? " selected" : ""}>${escapeHTML(title)}</option>`,

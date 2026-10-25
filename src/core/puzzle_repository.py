@@ -48,9 +48,6 @@ class PuzzleRepository:
             (2, 1): 303,
             (2, 2): 515,
             (2, 3): 333,
-            (3, 1): 717,
-            (3, 2): 818,
-            (3, 3): 919,
         }
         for spec in LEVEL_SPECS:
             puzzle_id = f"L{spec.level}G{spec.game}"
@@ -114,5 +111,5 @@ class PuzzleRepository:
             self.get(1, 1),
             self.get(1, 3),
             self.get(2, 1),
-            self.get(3, 2),
+            self.get(2, 3),
         ]

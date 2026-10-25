@@ -1,7 +1,7 @@
 import threading
 import time
 
-from src.algorithms.backtracking import BacktrackingSolver
+from src.algorithms.mrv import MRVForwardCheckingSolver
 from src.core.puzzle_repository import PuzzleRepository
 from src.core.round_manager import RoundManager
 from src.models.round_result import RaceOutcome, RoundPhase
@@ -193,10 +193,10 @@ def test_near_simultaneous_draw_and_single_finalize():
     mgr.shutdown()
 
 
-def test_real_backtracking_worker_does_not_need_main_thread():
+def test_real_mrv_worker_does_not_need_main_thread():
     puzzle = PuzzleRepository().get(1, 1)
     mgr = RoundManager()
-    mgr.start_round(puzzle, BacktrackingSolver(), SolverConfig(time_limit_seconds=5, round_time_limit_seconds=5))
+    mgr.start_round(puzzle, MRVForwardCheckingSolver(), SolverConfig(time_limit_seconds=5, round_time_limit_seconds=5))
     deadline = time.perf_counter() + 3
     while time.perf_counter() < deadline and not mgr.ai_valid:
         mgr.tick()

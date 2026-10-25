@@ -64,122 +64,6 @@ function timedOut(started, config) {
   return (performance.now() - started) / 1000 >= config.time_limit_seconds;
 }
 
-export function solveBacktracking(puzzle, config = DEFAULT_CONFIG, fixedQueens = [], trace = null) {
-  const started = performance.now();
-  const invalid = validDefinitionOrResult("Basic Backtracking", puzzle, started);
-  if (invalid) return invalid;
-
-  const n = puzzle.n;
-  const columns = Array(n).fill(-1);
-  const fixed = fixedAssignment(puzzle, fixedQueens);
-  if (fixed === null) {
-    return result("Basic Backtracking", false, null, started, REASON.INVALID_FIXED_PLACEMENTS);
-  }
-  for (const [row, col] of fixed) columns[row] = col;
-  let nodes = 0;
-  let backtracks = 0;
-  let backtrackSteps = 0;
-  let conflicts = 0;
-  let traceId = 0;
-  let reason = REASON.UNSOLVABLE;
-  let found = null;
-  let foundAt = null;
-
-  function search(row, parentId = 0) {
-    if (timedOut(started, config)) {
-      reason = REASON.TIMEOUT;
-      return true;
-    }
-    if (nodes >= config.max_nodes) {
-      reason = REASON.NODE_LIMIT;
-      return true;
-    }
-    if (row === n) {
-      if (validateRowColumns(puzzle, columns).valid) {
-        found = [...columns];
-        foundAt = performance.now();
-        reason = REASON.SOLVED;
-        const id = trace?.enabled ? ++traceId : 0;
-        trace?.enabled && trace.record({
-          type: "solution",
-          id,
-          parentId,
-          depth: n,
-          placements: [...columns],
-        });
-        return true;
-      }
-      return false;
-    }
-    if (columns[row] >= 0) {
-      return search(row + 1, parentId);
-    }
-
-    for (let col = 0; col < n; col += 1) {
-      nodes += 1;
-      const id = trace?.enabled ? ++traceId : 0;
-      if (!isSafePartial(puzzle, columns, row, col)) {
-        conflicts += 1;
-        trace?.enabled && trace.record({
-          type: "conflict",
-          id,
-          parentId,
-          depth: row + 1,
-          row,
-          col,
-          placements: [...columns],
-        });
-        continue;
-      }
-
-      columns[row] = col;
-      trace?.enabled && trace.record({
-        type: "explore",
-        id,
-        parentId,
-        depth: row + 1,
-        row,
-        col,
-        placements: [...columns],
-      });
-
-      if (search(row + 1, id)) return true;
-
-      columns[row] = -1;
-      backtracks += 1;
-      backtrackSteps += 1;
-      trace?.enabled && trace.record({
-        type: "backtrack",
-        id: trace?.enabled ? ++traceId : 0,
-        parentId: id,
-        depth: row + 1,
-        row,
-        col,
-        placements: [...columns],
-      });
-    }
-    return false;
-  }
-
-  search(0);
-  return result(
-    "Basic Backtracking",
-    found !== null,
-    found,
-    started,
-    reason,
-    {
-      nodes_visited: nodes,
-      backtracks,
-      backtrack_steps: backtrackSteps,
-      conflicts,
-      pruned_branches: conflicts,
-    },
-    null,
-    foundAt,
-  );
-}
-
 class MinHeap {
   constructor(compare) {
     this.items = [];
@@ -224,12 +108,18 @@ class MinHeap {
   }
 }
 
+/**
+ * Meaningful heuristic for Greedy Best-First Search on Kingdom N-Queens.
+ * Pure evaluation function: f(n) = h(n) [strictly ignores g(n)].
+ * Evaluates domain tightness and immediate dead-ends across all unassigned rows.
+ */
 export function calculateHeuristic(puzzle, columns, g) {
   const n = puzzle.n;
   if (g === n) return 0;
   let totalBlocked = 0;
   let deadEnd = false;
-  for (let r = g; r < n; r += 1) {
+  for (let r = 0; r < n; r += 1) {
+    if (columns[r] >= 0) continue;
     let legal = 0;
     for (let c = 0; c < n; c += 1) {
       if (isSafePartial(puzzle, columns, r, c)) {
@@ -242,168 +132,6 @@ export function calculateHeuristic(puzzle, columns, g) {
   }
   if (deadEnd) return 10_000 + (n - g);
   return (n - g) + totalBlocked;
-}
-
-function compareAStarQueueItems(a, b) {
-  return a.f - b.f || a.h - b.h || a.id - b.id;
-}
-
-export function solveAStar(puzzle, config = DEFAULT_CONFIG, fixedQueens = [], trace = null) {
-  const started = performance.now();
-  const invalid = validDefinitionOrResult("A* Search", puzzle, started);
-  if (invalid) return invalid;
-
-  const n = puzzle.n;
-  const fixed = fixedAssignment(puzzle, fixedQueens);
-  if (fixed === null) {
-    return result("A* Search", false, null, started, REASON.INVALID_FIXED_PLACEMENTS);
-  }
-  const initialColumns = Array(n).fill(-1);
-  for (const [row, col] of fixed) initialColumns[row] = col;
-  const startNode = { columns: initialColumns, g: fixed.size, traceId: 0 };
-  const h0 = calculateHeuristic(puzzle, initialColumns, fixed.size);
-  const frontier = new MinHeap(compareAStarQueueItems);
-  frontier.push({ f: startNode.g + h0, h: h0, g: startNode.g, id: 0, node: startNode });
-  trace?.enabled && trace.record({ type: "explore", id: 0, parentId: null, depth: fixed.size, placements: [...initialColumns] });
-  const explored = new Set();
-  let counter = 0;
-  let expanded = 0;
-  let generated = 1;
-  let duplicates = 0;
-  let conflicts = 0;
-  let prunedBranches = 0;
-  let traceId = 0;
-  let maxFrontier = 1;
-  let reason = REASON.UNSOLVABLE;
-  let found = null;
-  let foundAt = null;
-  let pathCost = null;
-
-  while (frontier.length > 0) {
-    if (timedOut(started, config)) {
-      reason = REASON.TIMEOUT;
-      break;
-    }
-    if (expanded >= config.max_expanded) {
-      reason = REASON.EXPANDED_LIMIT;
-      break;
-    }
-    if (generated >= config.max_generated) {
-      reason = REASON.NODE_LIMIT;
-      break;
-    }
-    const { node } = frontier.pop();
-    const key = node.columns.join(",");
-    if (explored.has(key)) {
-      duplicates += 1;
-      continue;
-    }
-    explored.add(key);
-    expanded += 1;
-    trace?.enabled && trace.record({
-      type: "expand",
-      id: node.traceId,
-      parentId: null,
-      depth: node.g,
-      placements: [...node.columns],
-    });
-
-    if (node.g === n) {
-      if (validateRowColumns(puzzle, node.columns).valid) {
-        found = node.columns;
-        foundAt = performance.now();
-        pathCost = node.g;
-        reason = REASON.SOLVED;
-        trace?.enabled && trace.record({
-          type: "solution",
-          id: node.traceId,
-          parentId: null,
-          depth: node.g,
-          placements: [...node.columns],
-        });
-        break;
-      }
-      continue;
-    }
-    const nextRow = node.columns.findIndex((col) => col < 0);
-    if (nextRow < 0) continue;
-    for (let col = 0; col < n; col += 1) {
-      generated += 1;
-      const id = trace?.enabled ? ++traceId : 0;
-      if (!isSafePartial(puzzle, node.columns, nextRow, col)) {
-        conflicts += 1;
-        prunedBranches += 1;
-        trace?.enabled && trace.record({
-          type: "conflict",
-          id,
-          parentId: node.traceId,
-          depth: node.g + 1,
-          row: nextRow,
-          col,
-          placements: [...node.columns],
-        });
-        continue;
-      }
-      const childColumns = [...node.columns];
-      childColumns[nextRow] = col;
-      if (explored.has(childColumns.join(","))) {
-        duplicates += 1;
-        prunedBranches += 1;
-        trace?.enabled && trace.record({
-          type: "prune",
-          id,
-          parentId: node.traceId,
-          depth: node.g + 1,
-          row: nextRow,
-          col,
-          placements: childColumns,
-        });
-        continue;
-      }
-      const g = node.g + 1;
-      const h = calculateHeuristic(puzzle, childColumns, g);
-      const f = g + h;
-      counter += 1;
-      trace?.enabled && trace.record({
-        type: "explore",
-        id,
-        parentId: node.traceId,
-        depth: g,
-        row: nextRow,
-        col,
-        placements: childColumns,
-      });
-      frontier.push({
-        f,
-        h,
-        g,
-        id: counter,
-        node: { columns: childColumns, g, traceId: id },
-      });
-    }
-    maxFrontier = Math.max(maxFrontier, frontier.length);
-  }
-
-  return result(
-    "A* Search",
-    found !== null,
-    found,
-    started,
-    reason,
-    {
-      states_expanded: expanded,
-      states_generated: generated,
-      duplicates_skipped: duplicates,
-      max_frontier_size: maxFrontier,
-      explored_states: explored.size,
-      conflicts,
-      pruned_branches: prunedBranches,
-      path_cost: pathCost,
-      heuristic: "f(n) = g(n) + h(n), with h(n) = (N - q(n)) + unassigned domain reduction penalty",
-    },
-    null,
-    foundAt,
-  );
 }
 
 function compareGreedyQueueItems(a, b) {
@@ -757,10 +485,8 @@ export function solveMRVForwardChecking(puzzle, config = DEFAULT_CONFIG, fixedQu
 }
 
 export const SOLVERS = Object.freeze({
-  backtracking: solveBacktracking,
-  astar: solveAStar,
-  greedy: solveGreedyBestFirst,
   mrv: solveMRVForwardChecking,
+  greedy: solveGreedyBestFirst,
 });
 
 export function solveByKey(key, puzzle, config = DEFAULT_CONFIG, fixedQueens = [], trace = null) {

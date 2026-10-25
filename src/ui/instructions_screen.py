@@ -23,31 +23,21 @@ INSTRUCTIONS = [
     ("Hidden AI",
      "During the live round the interface only says that the AI is competing. Queen "
      "positions, search progress, scores, and metrics appear only on the results screen."),
-    ("Basic Backtracking",
-     "Queens are placed one row at a time. Each legal column is tried. If a partial "
-     "placement cannot be completed, the algorithm undoes it and tries the next option. "
-     "This is the reliable baseline solver."),
-    ("A* Search",
-     "Each node is an immutable partial placement. g(n) is the number of queens placed. "
-     "h(n) incorporates remaining queens plus unassigned row domain reduction penalties, "
-     "with early dead-end detection. f(n) = g(n) + h(n) orders the priority queue. "
-     "This resolves the f(n)=N degeneracy of uniform heuristics. Duplicate canonical states "
-     "are pruned. Memory and expansion limits apply."),
+    ("CSP Backtracking + MRV + Forward Checking",
+     "A systematic CSP solver that dynamically selects the unassigned row with the Minimum "
+     "Remaining Values (MRV / fewest legal columns) and immediately forward-checks unassigned variable "
+     "domains after each placement. Pruned domains are restored upon backtracking. Complete for finite CSP domains."),
     ("Greedy Best-First Search",
-     "Orders the priority queue purely by heuristic value f(n) = h(n), breaking ties by "
-     "search depth. It prioritizes nodes that appear closest to the goal. While highly efficient "
-     "on typical boards, it is not guaranteed to be optimal or complete in general search spaces."),
-    ("MRV + Forward Checking",
-     "A CSP backtracking solver that dynamically picks the unassigned row with the Minimum "
-     "Remaining Values (fewest legal columns) and prunes candidate domains ahead after each assignment. "
-     "It detects wipeouts immediately before descending into doomed subtrees."),
+     "An informed priority-queue solver evaluated purely by f(n) = h(n), where h estimates remaining "
+     "unassigned queens and domain tightness. Unlike systematic backtracking, it pursues promising nodes "
+     "greedily and is not guaranteed to find a solution or prove unsatisfiability in bounded search."),
 ]
 
 ABOUT = [
     ("Kingdom Wars: The AI Queen Race",
-     "A CSE project that combines constraint satisfaction with a human-versus-AI race. "
-     "Four search algorithms solve the same family of puzzles: basic backtracking, A*, "
-     "greedy best-first search, and MRV with forward checking. The emphasis is on correct constraints, honest "
+     "A strategy game that combines constraint satisfaction with a human-versus-AI race. "
+     "Two genuine AI approaches solve the same family of puzzles: CSP Backtracking with MRV "
+     "and Forward Checking, and Greedy Best-First Search. The emphasis is on correct constraints, honest "
      "metrics, and a playable interface rather than on claiming a universal winner."),
     ("Technology",
      "Python, Pygame, pytest, heapq, and a background thread for AI search. No server, "

@@ -3,12 +3,12 @@ from src.core.level_manager import LEVEL_SPECS
 from src.core.puzzle_repository import PuzzleRepository
 
 
-def test_repository_has_nine_verified_puzzles_after_removed_tier():
+def test_repository_has_verified_puzzles_for_active_tiers():
     repo = PuzzleRepository()
     puzzles = repo.all_puzzles()
-    assert len(puzzles) == 9
+    assert len(puzzles) == len(LEVEL_SPECS)
     assert [puzzle.puzzle_id for puzzle in puzzles] == [
-        f"L{level}G{game}" for level in range(1, 4) for game in range(1, 4)
+        f"L{spec.level}G{spec.game}" for spec in LEVEL_SPECS
     ]
     checker = ConstraintChecker()
     for spec, puzzle in zip(LEVEL_SPECS, puzzles):

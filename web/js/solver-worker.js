@@ -7,10 +7,8 @@ const GAME_TRACE_BATCH_SIZE = 32;
 const MAX_GAME_TRACE_EVENTS = 6_000;
 
 const ALGORITHM_NAMES = Object.freeze({
-  backtracking: "Basic Backtracking",
-  astar: "A* Search",
-  greedy: "Greedy Best-First Search",
   mrv: "MRV + Forward Checking",
+  greedy: "Greedy Best-First Search",
 });
 
 function solveOne(message) {

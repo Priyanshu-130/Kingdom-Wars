@@ -7,6 +7,7 @@ import pygame
 
 from src.app import KingdomWarsApp
 from src.core.game_controller import GameController
+from src.core.level_manager import LevelManager
 from src.core.progress_manager import ProgressManager
 from src.core.puzzle_repository import PuzzleRepository
 from src.models.solver_config import SolverConfig
@@ -140,7 +141,7 @@ def test_browser_mode_runs_each_level_solver(tmp_path):
         progress=ProgressManager(tmp_path / "p.json"),
         browser_mode=True,
     )
-    for level in range(1, 4):
+    for level in range(1, LevelManager.LEVEL_COUNT + 1):
         controller.round.start_round(
             controller.repository.get(level, 1),
             controller.levels.solver_for(level),

@@ -11,7 +11,7 @@ import { GAMES_PER_LEVEL, LEVEL_COUNT } from "./puzzles.js?three-tiers-v2";
 export const MAX_MISTAKES = 3;
 export const ROUND_TIME_LIMIT_SECONDS = 120;
 export const NEAR_SIMULTANEOUS_TOLERANCE = 0.05;
-const PROGRESS_VERSION = 2;
+const PROGRESS_VERSION = 3;
 const PROGRESS_STORAGE_KEY = "kingdom-wars-progress";
 
 export class GameRound {
@@ -283,9 +283,14 @@ export class ProgressStore {
           for (const item of payload.completed) {
             if (Array.isArray(item) && item.length === 2 && Number.isInteger(item[0]) && Number.isInteger(item[1])) {
               const [oldLevel, game] = item;
-              const level = previousVersion < PROGRESS_VERSION
-                ? ({ 1: 1, 3: 2, 4: 3 })[oldLevel]
-                : oldLevel;
+              let level = oldLevel;
+              if (previousVersion < PROGRESS_VERSION) {
+                if (previousVersion === 1) {
+                  level = ({ 1: 1, 3: 2, 4: 2 })[oldLevel] ?? (oldLevel === 2 ? 1 : null);
+                } else if (previousVersion === 2) {
+                  level = ({ 1: 1, 2: 1, 3: 2 })[oldLevel] ?? null;
+                }
+              }
               if (
                 Number.isInteger(level)
                 && level >= 1 && level <= LEVEL_COUNT

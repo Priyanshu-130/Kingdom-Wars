@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pygame
 
-from ..core.level_manager import LEVEL_META, LEVEL_SPECS
+from ..core.level_manager import LEVEL_META, LEVEL_SPECS, LevelManager
 from .widgets import GOLD, MUTED, NAVY, OK, PANEL, PANEL_EDGE, TEXT, Button, draw_round_rect
 
 
@@ -19,10 +19,13 @@ class LevelSelectionScreen:
         self.back.set_rect(pygame.Rect(40, 28, 180, 46))
         self.cards.clear()
         margin_x = 48
-        card_w = (w - margin_x * 2 - 24) // 3
+        count = LevelManager.LEVEL_COUNT
+        card_w = min(480, (w - margin_x * 2 - (count - 1) * 20) // count)
+        total_w = count * card_w + (count - 1) * 20
+        start_x = (w - total_w) // 2
         card_h = h - 180
-        for i, level in enumerate(range(1, 4)):
-            rect = pygame.Rect(margin_x + i * (card_w + 12), 120, card_w, card_h)
+        for i, level in enumerate(range(1, count + 1)):
+            rect = pygame.Rect(start_x + i * (card_w + 20), 120, card_w, card_h)
             unlocked = self.app.controller.progress.is_level_unlocked(level)
             self.cards.append((level, i, rect, unlocked))
 
@@ -33,7 +36,7 @@ class LevelSelectionScreen:
                 if not unlocked or not rect.collidepoint(event.pos):
                     continue
                 inner_y = rect.y + 150
-                for game in range(1, 4):
+                for game in range(1, LevelManager.GAMES_PER_LEVEL + 1):
                     g_rect = pygame.Rect(rect.x + 18, inner_y + (game - 1) * 78, rect.width - 36, 64)
                     if g_rect.collidepoint(event.pos):
                         self.app.start_race(level, game)
@@ -62,14 +65,14 @@ class LevelSelectionScreen:
             surface.blit(name, (rect.x + 20, rect.y + 22))
             surface.blit(algo, (rect.x + 20, rect.y + 58))
             done = self.app.controller.progress.completed_count(level)
-            progress = self.app.font_small.render(f"{done}/3 games completed", True, OK if done == 3 else MUTED)
+            progress = self.app.font_small.render(f"{done}/{LevelManager.GAMES_PER_LEVEL} games completed", True, OK if done == LevelManager.GAMES_PER_LEVEL else MUTED)
             surface.blit(progress, (rect.x + 20, rect.y + 88))
             if not unlocked:
                 lock = self.app.font_button.render("Locked", True, MUTED)
                 surface.blit(lock, lock.get_rect(center=rect.center))
                 continue
             inner_y = rect.y + 150
-            for game in range(1, 4):
+            for game in range(1, LevelManager.GAMES_PER_LEVEL + 1):
                 spec = next(s for s in LEVEL_SPECS if s.level == level and s.game == game)
                 g_rect = pygame.Rect(rect.x + 18, inner_y + (game - 1) * 78, rect.width - 36, 64)
                 completed = self.app.controller.progress.is_completed(level, game)

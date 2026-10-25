@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional
+from typing import Iterable, Optional
 
 from ..models.puzzle import Puzzle
 from ..models.solver_config import SolverConfig
@@ -15,19 +15,24 @@ class MRVForwardCheckingSolver(BaseSolver):
 
     Variable Ordering:
       MRV (Minimum Remaining Values / Most Constrained Variable):
-      Selects the unassigned row with the fewest legal column candidates remaining.
+      Dynamically selects the unassigned row with the fewest legal column candidates remaining.
       Ties are broken deterministically by lowest row index.
 
-    Inference:
-      Forward Checking:
-      After assigning (row, col), immediately checks all other unassigned rows and
-      prunes any column candidates that conflict on column, diagonal, or kingdom rules.
-      If any unassigned row's domain becomes empty, fails immediately and backtracks,
-      restoring previous domain states.
+    Inference (Forward Checking):
+      After assigning a queen to (row, col), immediately checks all remaining unassigned rows
+      and prunes any column values that violate column, diagonal, or kingdom constraints.
+      If any unassigned row's domain is reduced to zero candidates, immediately detects
+      the wipeout and backtracks at depth k rather than failing at depth N.
 
-    Guarantees:
-      - Completeness: Complete for finite CSP domains.
-      - Efficiency: Prunes search branches at depth k rather than failing at depth N.
+    Domain Restoration:
+      Before pruning, takes an exact snapshot of affected domains. When backtracking
+      from a branch, restores all pruned domain states faithfully.
+
+    Guarantees & Properties:
+      - Completeness: Complete for finite CSP domains; guaranteed to find a valid solution
+        or prove unsatisfiability if one does not exist (within node and time limits).
+      - Soundness: All reported solutions strictly satisfy row, column, diagonal, and
+        connected-kingdom constraints.
     """
 
     algorithm_name = "MRV + Forward Checking"
@@ -37,6 +42,7 @@ class MRVForwardCheckingSolver(BaseSolver):
         puzzle: Puzzle,
         config: SolverConfig,
         cancel_event: Optional[threading.Event] = None,
+        fixed_queens: Optional[Iterable[tuple[int, int]]] = None,
     ) -> SolverResult:
         started = time.perf_counter()
         defn = self.checker.validate_puzzle_definition(puzzle)
@@ -69,11 +75,11 @@ class MRVForwardCheckingSolver(BaseSolver):
         def forward_check(row: int, col: int) -> Optional[dict[int, set[int]]]:
             nonlocal eliminated
             snapshot: dict[int, set[int]] = {}
+            curr_assignment = {**assignment, row: col}
             for other in range(n):
-                if other in assignment or other == row:
+                if other in curr_assignment:
                     continue
                 removed: set[int] = set()
-                curr_assignment = {**assignment, row: col}
                 for cand in list(domains[other]):
                     if not self.checker.is_safe_assignment(puzzle, curr_assignment, other, cand):
                         removed.add(cand)
@@ -88,7 +94,48 @@ class MRVForwardCheckingSolver(BaseSolver):
 
         def restore(snapshot: dict[int, set[int]]) -> None:
             for r, values in snapshot.items():
-                domains[r] = values
+                domains[r] = set(values)
+
+        # Handle pre-fixed queens if provided
+        if fixed_queens:
+            for placement in fixed_queens:
+                if not isinstance(placement, (list, tuple)) or len(placement) != 2:
+                    return SolverResult(
+                        algorithm_name=self.algorithm_name,
+                        success=False,
+                        elapsed_seconds=time.perf_counter() - started,
+                        termination_reason=TerminationReason.INVALID_FIXED_PLACEMENTS,
+                        metrics={"error": "Malformed fixed queen placement"},
+                    )
+                r, c = placement
+                if not (0 <= r < n and 0 <= c < n):
+                    return SolverResult(
+                        algorithm_name=self.algorithm_name,
+                        success=False,
+                        elapsed_seconds=time.perf_counter() - started,
+                        termination_reason=TerminationReason.INVALID_FIXED_PLACEMENTS,
+                        metrics={"error": f"Fixed queen out of bounds: ({r}, {c})"},
+                    )
+                if r in assignment or not self.checker.is_safe_assignment(puzzle, assignment, r, c):
+                    return SolverResult(
+                        algorithm_name=self.algorithm_name,
+                        success=False,
+                        elapsed_seconds=time.perf_counter() - started,
+                        termination_reason=TerminationReason.INVALID_FIXED_PLACEMENTS,
+                        metrics={"error": f"Fixed queen conflicts: ({r}, {c})"},
+                    )
+                assignment[r] = c
+                domains[r] = {c}
+                # Forward check the fixed placement
+                snap = forward_check(r, c)
+                if snap is None:
+                    return SolverResult(
+                        algorithm_name=self.algorithm_name,
+                        success=False,
+                        elapsed_seconds=time.perf_counter() - started,
+                        termination_reason=TerminationReason.UNSOLVABLE,
+                        metrics={"error": f"Fixed queen domain wipeout: ({r}, {c})"},
+                    )
 
         def rec() -> bool:
             nonlocal nodes, backtracks, reason, found, found_at
@@ -141,6 +188,7 @@ class MRVForwardCheckingSolver(BaseSolver):
             "pruned_branches": backtracks,
             "conflicts": backtracks,
             "heuristic": "MRV (Minimum Remaining Values) + Forward Checking",
+            "completeness": "Complete systematic CSP search with forward inference",
         }
         return self._finish(
             started,
