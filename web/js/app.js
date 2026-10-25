@@ -176,6 +176,29 @@ function renderTextSections(sections) {
   ).join("");
 }
 
+function drawBoardCrossMark(context, cx, cy, radius, color = "#ff4d6d", lineWidth = 2) {
+  context.save();
+  context.lineCap = "round";
+  context.strokeStyle = "rgba(10, 15, 28, 0.65)";
+  context.lineWidth = lineWidth + 1.6;
+  context.beginPath();
+  context.moveTo(cx - radius, cy - radius);
+  context.lineTo(cx + radius, cy + radius);
+  context.moveTo(cx + radius, cy - radius);
+  context.lineTo(cx - radius, cy + radius);
+  context.stroke();
+
+  context.strokeStyle = color;
+  context.lineWidth = lineWidth;
+  context.beginPath();
+  context.moveTo(cx - radius, cy - radius);
+  context.lineTo(cx + radius, cy + radius);
+  context.moveTo(cx + radius, cy - radius);
+  context.lineTo(cx - radius, cy + radius);
+  context.stroke();
+  context.restore();
+}
+
 function drawVisualizationBoard(canvas, puzzle, event) {
   const width = Math.max(300, Math.floor(canvas.clientWidth || 420));
   const size = Math.min(width, 460);
@@ -189,7 +212,9 @@ function drawVisualizationBoard(canvas, puzzle, event) {
   const cell = size / puzzle.n;
   const placements = event?.placements || Array(puzzle.n).fill(-1);
   const conflictedCells = new Set();
-  if (event?.type === "conflict" || event?.type === "prune") {
+  const isConflictEvent = event?.type === "conflict" || event?.type === "prune";
+
+  if (isConflictEvent) {
     if (Number.isInteger(event.row) && Number.isInteger(event.col)) {
       conflictedCells.add(cellKey(event.row, event.col));
     }
@@ -211,6 +236,39 @@ function drawVisualizationBoard(canvas, puzzle, event) {
       }
     }
   }
+
+  // Collect all currently placed Queens
+  const placedQueens = [];
+  for (let r = 0; r < puzzle.n; r += 1) {
+    const c = placements[r];
+    if (Number.isInteger(c) && c >= 0 && c < puzzle.n) {
+      placedQueens.push([r, c]);
+    }
+  }
+
+  // Identify all cells where a Queen is impossible due to conflicts with placed Queens
+  const impossibleCells = new Set();
+  for (let row = 0; row < puzzle.n; row += 1) {
+    for (let col = 0; col < puzzle.n; col += 1) {
+      if (placements[row] === col) continue;
+      for (const [qr, qc] of placedQueens) {
+        if (
+          row === qr
+          || col === qc
+          || Math.abs(row - qr) === Math.abs(col - qc)
+          || puzzle.kingdoms[row][col] === puzzle.kingdoms[qr][qc]
+        ) {
+          impossibleCells.add(cellKey(row, col));
+          break;
+        }
+      }
+    }
+  }
+
+  if (isConflictEvent && Number.isInteger(event.row) && Number.isInteger(event.col)) {
+    impossibleCells.add(cellKey(event.row, event.col));
+  }
+
   for (let row = 0; row < puzzle.n; row += 1) {
     for (let col = 0; col < puzzle.n; col += 1) {
       const kingdom = puzzle.kingdoms[row][col];
@@ -221,13 +279,29 @@ function drawVisualizationBoard(canvas, puzzle, event) {
       context.lineWidth = 1;
       context.strokeRect(col * cell, row * cell, cell, cell);
       const isBacktracked = event?.type === "backtrack" && event.row === row && event.col === col;
-      if (placements[row] === col || isBacktracked) {
+      const isQueen = placements[row] === col || isBacktracked;
+
+      if (isQueen) {
         context.fillStyle = "#111827";
         context.font = `700 ${Math.round(cell * 0.68)}px Georgia, serif`;
         context.textAlign = "center";
         context.textBaseline = "middle";
         context.fillText("♛", col * cell + cell / 2, row * cell + cell / 2 + 1);
+      } else if (impossibleCells.has(cellKey(row, col))) {
+        const isEventCell = isConflictEvent && event.row === row && event.col === col;
+        const crossColor = isEventCell ? "#ff1f44" : "rgba(255, 75, 96, 0.85)";
+        const crossRadius = isEventCell ? cell * 0.28 : cell * 0.22;
+        const crossWidth = isEventCell ? Math.max(3, size / 110) : Math.max(2, size / 175);
+        drawBoardCrossMark(
+          context,
+          col * cell + cell / 2,
+          row * cell + cell / 2,
+          crossRadius,
+          crossColor,
+          crossWidth,
+        );
       }
+
       if (conflictedCells.has(cellKey(row, col))) {
         context.strokeStyle = "#ff354f";
         context.lineWidth = Math.max(3, size / 115);
@@ -235,21 +309,22 @@ function drawVisualizationBoard(canvas, puzzle, event) {
       }
     }
   }
+
   if (Number.isInteger(event?.row) && Number.isInteger(event?.col)) {
-    context.strokeStyle = event.type === "conflict" || event.type === "prune"
+    context.strokeStyle = isConflictEvent
       ? "#ff354f"
       : event.type === "backtrack" ? "#c084fc" : "#fff4ad";
     context.lineWidth = Math.max(3, size / 115);
     context.strokeRect(event.col * cell + 2, event.row * cell + 2, cell - 4, cell - 4);
-    if (event.type === "conflict" || event.type === "prune") {
-      context.strokeStyle = "#ff354f";
-      context.lineWidth = Math.max(2, size / 180);
-      context.beginPath();
-      context.moveTo(event.col * cell + cell * 0.3, event.row * cell + cell * 0.3);
-      context.lineTo((event.col + 1) * cell - cell * 0.3, (event.row + 1) * cell - cell * 0.3);
-      context.moveTo((event.col + 1) * cell - cell * 0.3, event.row * cell + cell * 0.3);
-      context.lineTo(event.col * cell + cell * 0.3, (event.row + 1) * cell - cell * 0.3);
-      context.stroke();
+    if (isConflictEvent) {
+      drawBoardCrossMark(
+        context,
+        event.col * cell + cell / 2,
+        event.row * cell + cell / 2,
+        cell * 0.28,
+        "#ff1744",
+        Math.max(3, size / 110),
+      );
     }
   }
 }
@@ -649,7 +724,7 @@ class KingdomWarsBrowserApp {
         <progress class="lab-progress" max="${Math.max(1, lab.events.length)}" value="${lab.cursor}">${lab.cursor}/${lab.events.length}</progress>
       </section>
       <div class="lab-visuals">
-        <section class="panel lab-card"><h2>Search board</h2><p class="muted lab-tree-note">Shows the exact Queen arrangement from the current solver event. Red marks a rejected/conflicting position; purple marks backtracking; gold marks the current trial.</p><canvas id="lab-board" aria-label="Animated chessboard search state"></canvas></section>
+        <section class="panel lab-card"><h2>Search board</h2><p class="muted lab-tree-note">Shows the exact Queen arrangement from the current solver event. Cross marks (×) show squares the AI ruled out as not possible; red marks a rejected/conflicting position; purple marks backtracking; gold marks the current trial.</p><canvas id="lab-board" aria-label="Animated chessboard search state"></canvas></section>
         <section class="panel lab-card"><h2>Synchronized search tree</h2><p class="muted lab-tree-note">Each dot is a real partial board or candidate, connected to its parent when the solver trace provides that relationship. Color shows the event outcome; repeated dots indicate a revisited state.</p><p class="tree-legend">Blue: explored · Red: conflict · Amber: duplicate/pruned · Purple: backtrack · Green: solution · Gold: restart</p><p class="muted lab-tree-note">The canvas displays up to 350 real search nodes; complete solver statistics remain available below.</p><div class="lab-tree-scroll"><canvas id="lab-tree" aria-label="Search tree of explored and rejected branches"></canvas></div></section>
       </div>
       <section class="lab-stats" aria-label="Search statistics">
